@@ -9,7 +9,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
@@ -226,23 +225,18 @@ static int createPerfEvent(const struct PGCollectState* state)
   pe_attr.config = PERF_COUNT_HW_CPU_CYCLES;
 //  pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
   pe_attr.sample_freq = 4000;
-  pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_TIME | PERF_SAMPLE_ADDR |
-      PERF_SAMPLE_CALLCHAIN;
-  pe_attr.disabled = 1;
-//  pe_attr.inherit = 0;
+  pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
+  pe_attr.disabled = (state->gogoFD == -1) ? 0 : 1;
+//  pe_attr.inherit = 1;
   pe_attr.exclude_kernel = 1;
   pe_attr.exclude_hv = 1;
   pe_attr.mmap = 1;
-//  pe_attr.comm = 1;
   pe_attr.freq = 1;
-  // watermark = 0
+  pe_attr.enable_on_exec = 1;
 //  pe_attr.precise_ip = 2;
-//  pe_attr.sample_id_all = 1;
-//  pe_attr.exclude_host = 1;
-//  pe_attr.exclude_guest = 1;
 
-  // Wake for every single event
-  pe_attr.wakeup_events = 5;
+  // Wake for every Xth event
+//  pe_attr.wakeup_events = 5;
 
   int fd = perf_event_open(&pe_attr, state->pid, -1, -1, 0);
   if (fd == -1)
@@ -289,11 +283,6 @@ static void fillPollData(struct pollfd* pollData, int perfEventFD)
 {
   pollData->fd = perfEventFD;
   pollData->events = POLLIN;
-}
-
-static void enablePerfEvent(int perfEventFD)
-{
-  ioctl(perfEventFD, PERF_EVENT_IOC_ENABLE, 0);
 }
 
 static void pingProfiledProcess(int gogoFD)
@@ -365,8 +354,6 @@ int main(int argc, char** argv)
 
   struct pollfd pollData;
   fillPollData(&pollData, perfEventFD);
-
-  enablePerfEvent(perfEventFD);
 
   setupSignalHandlers(signalHandler);
 
