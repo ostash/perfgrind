@@ -171,9 +171,15 @@ void Profile::process()
 
 bool Profile::isMappedAddress(__u64 addr) const
 {
-  MemoryMap::const_iterator objIt = memoryMap_.lower_bound(MemoryObject(addr));
+  MemoryMap::const_iterator objIt = memoryMap_.upper_bound(MemoryObject(addr));
 
-  return objIt != memoryMap_.end() && addr < objIt->end;
+  if (objIt != memoryMap_.begin())
+  {
+    --objIt;
+   return addr >= objIt->start && addr < objIt->end;
+  }
+
+  return false;
 }
 
 InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
@@ -224,8 +230,10 @@ void Profile::dumpSamplesRange(std::ostream& os, InstrInfoStorage::const_iterato
     for (InstrInfo::CallCostStorage::const_iterator cIt = start->callCosts.begin(); cIt != start->callCosts.end();
          ++cIt)
     {
-      os << "cob=" << memoryMap_.lower_bound(MemoryObject(cIt->addr))->fileName << '\n';
-      os << "cfn=whole_" << memoryMap_.lower_bound(MemoryObject(cIt->addr))->baseName << '\n';
+
+      const MemoryObject& object = *(--(memoryMap_.upper_bound(MemoryObject(cIt->addr))));
+      os << "cob=" << object.fileName << '\n';
+      os << "cfn=whole_" << object.baseName << '\n';
       os << "calls=" << cIt->count << ' ' << std::hex << "0x" << cIt->addr << std::dec << '\n';
       os << "0x" << std::hex << start->exclusiveCost.addr << std::dec << " 1\n";
     }
