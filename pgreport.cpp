@@ -77,6 +77,7 @@ struct Sample
 class Profile
 {
 public:
+  Profile() : badSamplesCount_(0), goodSamplesCount_(0) {}
   void addMemoryObject(const perf_event& event);
   void addSample(const perf_event& event);
 
@@ -91,6 +92,8 @@ private:
 
   MemoryMap memoryMap_;
   SamplesStorage samples_;
+  size_t badSamplesCount_;
+  size_t goodSamplesCount_;
 };
 
 void Profile::addMemoryObject(const perf_event &event)
@@ -102,11 +105,16 @@ void Profile::addSample(const perf_event &event)
 {
   MemoryMap::const_iterator objIt = memoryMap_.lower_bound(MemoryObject(event.sample_event.ip));
   if (objIt == memoryMap_.end() || event.sample_event.ip >= objIt->end)
+  {
+    badSamplesCount_++;
     return;
+  }
 
   std::pair<SamplesStorage::iterator, bool> sampleInsertion =samples_.insert(Sample(event.sample_event.ip));
   if (!sampleInsertion.second)
     ((Sample&)*sampleInsertion.first).count++;
+
+  goodSamplesCount_++;
 }
 
 void Profile::process()
@@ -120,7 +128,8 @@ void Profile::dump(std::ostream &os) const
   for (MemoryMap::const_iterator objIt = memoryMap_.begin(); objIt != memoryMap_.end(); ++objIt)
   {
     const MemoryObject& object = *objIt;
-    os << "# " << std::hex << object.start << '-' << object.end << ' ' << object.offset << ' ' << object.fileName << '\n';
+    os << "# " << std::hex << object.start << '-' << object.end << ' ' << object.offset << std::dec
+       << ' ' << object.fileName << '\n';
 
     SamplesStorage::const_iterator lowIt = samples_.lower_bound(object.start);
     SamplesStorage::const_iterator upperIt = samples_.upper_bound(object.end);
@@ -131,6 +140,14 @@ void Profile::dump(std::ostream &os) const
       os << '\n';
     }
   }
+
+  os << "\n# memory objects: " << memoryMap_.size()
+     << "\n# sampled addresses: " << samples_.size()
+     << "\n\n# good sample events: " << goodSamplesCount_
+     << "\n# bad sample events: " << badSamplesCount_
+     << "\n# total sample events: " << badSamplesCount_ + goodSamplesCount_
+     << "\n# total events: " << badSamplesCount_ + goodSamplesCount_ + memoryMap_.size()
+     << '\n';
 }
 
 void Profile::dumpSamplesRange(std::ostream& os, SamplesStorage::const_iterator start,
@@ -172,15 +189,9 @@ int main(int argc, char** argv)
 
   Profile profile;
   perf_event event;
-  __u64 eventCount = 0;
 
   while (readEvent(input, event))
-  {
-    eventCount++;
     processEvent(profile, event);
-  }
-
-  std::cout << "# " << eventCount << " events processed\n";
 
   profile.process();
   profile.dump(std::cout);
