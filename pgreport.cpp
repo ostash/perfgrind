@@ -51,7 +51,8 @@ struct MemoryObject
     , offset(event.mmap_event.pgoff)
     , fileName(event.mmap_event.filename)
   {}
-  MemoryObject() : fileName("[unknown]") {}
+  explicit MemoryObject(__u64 addr) : start(addr) {}
+
   __u64 start;
   __u64 end;
   __u64 offset;
@@ -99,6 +100,10 @@ void Profile::addMemoryObject(const perf_event &event)
 
 void Profile::addSample(const perf_event &event)
 {
+  MemoryMap::const_iterator objIt = memoryMap_.lower_bound(MemoryObject(event.sample_event.ip));
+  if (objIt == memoryMap_.end() || event.sample_event.ip >= objIt->end)
+    return;
+
   std::pair<SamplesStorage::iterator, bool> sampleInsertion =samples_.insert(Sample(event.sample_event.ip));
   if (!sampleInsertion.second)
     ((Sample&)*sampleInsertion.first).count++;
@@ -110,29 +115,14 @@ void Profile::process()
 
 void Profile::dump(std::ostream &os) const
 {
-  if (!samples_.size())
-    return;
-
   os << "events: Cycles\n";
-
-  unsigned unknownObjectId = 1;
-
-  SamplesStorage::const_iterator prevIt = samples_.begin();
 
   for (MemoryMap::const_iterator objIt = memoryMap_.begin(); objIt != memoryMap_.end(); ++objIt)
   {
     const MemoryObject& object = *objIt;
-    SamplesStorage::const_iterator lowIt = samples_.lower_bound(object.start);
-    if (prevIt != lowIt)
-    {
-      os << "ob=[unknown_" << unknownObjectId << "]\n";
-      dumpSamplesRange(os, prevIt, lowIt);
-      os << '\n';
-      unknownObjectId++;
-    }
-
     os << "# " << std::hex << object.start << '-' << object.end << ' ' << object.offset << ' ' << object.fileName << '\n';
 
+    SamplesStorage::const_iterator lowIt = samples_.lower_bound(object.start);
     SamplesStorage::const_iterator upperIt = samples_.upper_bound(object.end);
     if (lowIt != upperIt)
     {
@@ -140,18 +130,7 @@ void Profile::dump(std::ostream &os) const
       dumpSamplesRange(os, lowIt, upperIt);
       os << '\n';
     }
-
-    prevIt = upperIt;
   }
-
-  if (prevIt != samples_.end())
-  {
-    os << "ob=[unknown_" << unknownObjectId << "]\n";
-    dumpSamplesRange(os, prevIt, samples_.end());
-    os << '\n';
-    unknownObjectId++;
-  }
-
 }
 
 void Profile::dumpSamplesRange(std::ostream& os, SamplesStorage::const_iterator start,
@@ -159,7 +138,7 @@ void Profile::dumpSamplesRange(std::ostream& os, SamplesStorage::const_iterator 
 {
   for (; start != finish; start++)
   {
-    __u64 adrInObj = start->addr/* - object.start + object.offset*/;
+    __u64 adrInObj = start->addr;
     os << "0x" << std::hex << adrInObj << ' ' << std::dec << start->count << '\n';
   }
 }
