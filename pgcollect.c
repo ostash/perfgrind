@@ -24,7 +24,10 @@ struct PGCollectState
   pid_t pid;
   int gogoFD;
   FILE* output;
-  __u64 eventCount;
+  unsigned wakeupCount;
+  unsigned sampleCount;
+  unsigned mmapCount;
+  unsigned synthMmapCount;
 };
 
 struct PerfMmapArea
@@ -101,6 +104,7 @@ static void collectExistingMappings(struct PGCollectState* state)
     event.header.size = sizeof(struct mmap_event) - PATH_MAX + alignedFilenameLen;
 
     fwrite(&event, event.header.size, 1, state->output);
+    state->synthMmapCount++;
   }
 
   fclose(mapFile);
@@ -114,7 +118,10 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     exit(EXIT_SUCCESS);
   }
 
-  state->eventCount = 0;
+  state->wakeupCount = 0;
+  state->sampleCount = 0;
+  state->mmapCount = 0;
+  state->synthMmapCount = 0;
 
   state->output = fopen(argv[1], "w");
   if (!state->output)
@@ -305,22 +312,26 @@ static void pingProfiledProcess(int gogoFD)
 #define rmb() asm volatile("lfence" ::: "memory")
 #endif
 
-static __u64 processEvents(struct PerfMmapArea* area, const struct PGCollectState* state)
+static void processEvents(struct PerfMmapArea* area, struct PGCollectState* state)
 {
   // Read head
   __u64 head = area->header->data_head;
   rmb();
 
   if (area->prev == head)
-    return 0;
+    return;
 
-  __u64 eventCount = 0;
   while (area->prev != head)
   {
     struct perf_event_header* eventHeader = (struct perf_event_header*)&(area->data[area->prev & area->mask]);
 
     if (eventHeader->type == PERF_RECORD_MMAP || eventHeader->type == PERF_RECORD_SAMPLE)
     {
+      if (eventHeader->type == PERF_RECORD_MMAP)
+        state->mmapCount++;
+      else if (eventHeader->type == PERF_RECORD_SAMPLE)
+        state->sampleCount++;
+
       if ((area->prev & area->mask) + eventHeader->size != ((area->prev + eventHeader->size) & area->mask))
       {
         size_t dataSize = area->mask + 1;
@@ -335,12 +346,9 @@ static __u64 processEvents(struct PerfMmapArea* area, const struct PGCollectStat
 
     area->prev += eventHeader->size;
 
-    eventCount++;
     // Set tail
     area->header->data_tail = head;
   }
-
-  return eventCount;
 }
 
 int main(int argc, char** argv)
@@ -362,7 +370,7 @@ int main(int argc, char** argv)
 
   while (1)
   {
-    state.eventCount += processEvents(&perfEventArea, &state);
+    processEvents(&perfEventArea, &state);
 
     if (stopCollecting)
       break;
@@ -372,6 +380,7 @@ int main(int argc, char** argv)
       perror("Poll error");
       stopCollecting = 1;
     }
+    state.wakeupCount++;
   }
 
   setupSignalHandlers(SIG_DFL);
@@ -381,5 +390,7 @@ int main(int argc, char** argv)
 
   puts("Collection stopped.");
   fclose(state.output);
-  fprintf(stdout, "%lld events written\n", state.eventCount);
+  fprintf(stdout, "Waked up %u times\nSythetic mmap events: %u\nReal mmap events: %u\nSample events: %u\n",
+          state.wakeupCount, state.synthMmapCount, state.mmapCount, state.sampleCount);
+  fprintf(stdout, "Total %u events written\n", state.synthMmapCount + state.mmapCount + state.sampleCount);
 }
