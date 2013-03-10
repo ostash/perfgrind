@@ -2,9 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <map>
 #include <set>
-#include <vector>
+#include <tr1/unordered_set>
 
 #include <cerrno>
 #include <climits>
@@ -43,6 +42,20 @@ bool readEvent(std::istream& is, perf_event& event)
   return true;
 }
 
+struct SourcePosition
+{
+  std::string* srcFile;
+  unsigned srcLine;
+};
+
+struct Symbol
+{
+  __u64 start;
+  __u64 end;
+  std::string name;
+  SourcePosition srcPos;
+};
+
 struct MemoryObject
 {
   MemoryObject(const perf_event& event)
@@ -60,11 +73,38 @@ struct MemoryObject
   __u64 offset;
   std::string fileName;
   std::string baseName;
+  std::tr1::unordered_set<Symbol> symbols;
   bool operator<(const MemoryObject& other) const
   {
     return start < other.start;
   }
+  void attachSymbols();
+  void detachSymbols();
+  Symbol* getOrCreateSymbol(__u64 addr);
+  SourcePosition getSourcePosition(__u64 addr);
 };
+
+void MemoryObject::attachSymbols()
+{
+
+}
+
+void MemoryObject::detachSymbols()
+{
+
+}
+
+Symbol* MemoryObject::getOrCreateSymbol(__u64 addr)
+{
+  static Symbol sym = { };
+  return &sym;
+}
+
+SourcePosition MemoryObject::getSourcePosition(__u64 addr)
+{
+  SourcePosition pos = {0, 0};
+  return pos;
+}
 
 struct Cost
 {
@@ -79,10 +119,12 @@ struct Cost
 
 struct InstrInfo
 {
-  explicit InstrInfo(__u64 addr) : exclusiveCost(addr) {}
+  explicit InstrInfo(__u64 addr) : exclusiveCost(addr), symbol(0) {}
   Cost exclusiveCost;
   typedef std::set<Cost> CallCostStorage;
   CallCostStorage callCosts;
+  Symbol* symbol;
+  SourcePosition sourcePos;
   bool operator<(const InstrInfo& other) const
   {
     return exclusiveCost < other.exclusiveCost;
@@ -111,6 +153,7 @@ private:
   typedef std::set<InstrInfo> InstrInfoStorage;
 
   bool isMappedAddress(__u64 addr) const;
+  MemoryObject& getMemoryObjectByAddr(__u64 addr) const;
   InstrInfo& getOrCreateInstrInfo(__u64 addr);
   void dumpSamplesRange(std::ostream &os, InstrInfoStorage::const_iterator start,
                         InstrInfoStorage::const_iterator finish) const;
@@ -167,6 +210,29 @@ void Profile::addSample(const perf_event &event)
 
 void Profile::process()
 {
+  MemoryObject* curObj = 0;
+  Symbol* curSymbol = 0;
+  for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
+  {
+    InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
+    __u64 insAddr = instr.exclusiveCost.addr;
+    if (!curObj || insAddr >= curObj->end)
+    {
+      if (curObj)
+        curObj->detachSymbols();
+      curSymbol = 0;
+      curObj = &getMemoryObjectByAddr(insAddr);
+      curObj->attachSymbols();
+    }
+    if (!curSymbol || insAddr >= curSymbol->end)
+      curSymbol = curObj->getOrCreateSymbol(insAddr);
+
+    instr.symbol = curSymbol;
+    instr.sourcePos = curObj->getSourcePosition(insAddr);
+    // call will be resolved during dumping
+  }
+  if (curObj)
+    curObj->detachSymbols();
 }
 
 bool Profile::isMappedAddress(__u64 addr) const
@@ -180,6 +246,11 @@ bool Profile::isMappedAddress(__u64 addr) const
   }
 
   return false;
+}
+
+MemoryObject& Profile::getMemoryObjectByAddr(__u64 addr) const
+{
+  return const_cast<MemoryObject&>(*(--(memoryMap_.upper_bound(MemoryObject(addr)))));
 }
 
 InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
@@ -230,8 +301,7 @@ void Profile::dumpSamplesRange(std::ostream& os, InstrInfoStorage::const_iterato
     for (InstrInfo::CallCostStorage::const_iterator cIt = start->callCosts.begin(); cIt != start->callCosts.end();
          ++cIt)
     {
-
-      const MemoryObject& object = *(--(memoryMap_.upper_bound(MemoryObject(cIt->addr))));
+      const MemoryObject& object = getMemoryObjectByAddr(cIt->addr);
       os << "cob=" << object.fileName << '\n';
       os << "cfn=whole_" << object.baseName << '\n';
       os << "calls=1 " << std::hex << "0x" << cIt->addr << std::dec << '\n';
