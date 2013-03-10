@@ -234,8 +234,8 @@ void Profile::dumpSamplesRange(std::ostream& os, InstrInfoStorage::const_iterato
       const MemoryObject& object = *(--(memoryMap_.upper_bound(MemoryObject(cIt->addr))));
       os << "cob=" << object.fileName << '\n';
       os << "cfn=whole_" << object.baseName << '\n';
-      os << "calls=" << cIt->count << ' ' << std::hex << "0x" << cIt->addr << std::dec << '\n';
-      os << "0x" << std::hex << start->exclusiveCost.addr << std::dec << " 1\n";
+      os << "calls=1 " << std::hex << "0x" << cIt->addr << std::dec << '\n';
+      os << "0x" << std::hex << start->exclusiveCost.addr << ' ' << std::dec << cIt->count << '\n';
     }
   }
 }
