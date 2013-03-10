@@ -83,7 +83,7 @@ public:
 
   void dump(std::ostream& os) const;
 private:
-  typedef std::vector<MemoryObject> MemoryMap;
+  typedef std::set<MemoryObject> MemoryMap;
   typedef std::set<Sample> SamplesStorage;
 
   void dumpSamplesRange(std::ostream &os, SamplesStorage::const_iterator start, SamplesStorage::const_iterator finish) const;
@@ -94,7 +94,7 @@ private:
 
 void Profile::addMemoryObject(const perf_event &event)
 {
-  memoryMap_.push_back(MemoryObject(event));
+  memoryMap_.insert(MemoryObject(event));
 }
 
 void Profile::addSample(const perf_event &event)
@@ -106,8 +106,6 @@ void Profile::addSample(const perf_event &event)
 
 void Profile::process()
 {
-  // Sort memory map
-  std::sort(memoryMap_.begin(), memoryMap_.end());
 }
 
 void Profile::dump(std::ostream &os) const
@@ -121,9 +119,9 @@ void Profile::dump(std::ostream &os) const
 
   SamplesStorage::const_iterator prevIt = samples_.begin();
 
-  for (size_t objIdx = 0; objIdx < memoryMap_.size(); objIdx++)
+  for (MemoryMap::const_iterator objIt = memoryMap_.begin(); objIt != memoryMap_.end(); ++objIt)
   {
-    const MemoryObject& object = memoryMap_[objIdx];
+    const MemoryObject& object = *objIt;
     SamplesStorage::const_iterator lowIt = samples_.lower_bound(object.start);
     if (prevIt != lowIt)
     {
