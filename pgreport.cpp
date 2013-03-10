@@ -50,13 +50,16 @@ struct MemoryObject
     , end(event.mmap_event.addr + event.mmap_event.len)
     , offset(event.mmap_event.pgoff)
     , fileName(event.mmap_event.filename)
-  {}
+  {
+    baseName = fileName.substr(fileName.rfind('/') + 1);
+  }
   explicit MemoryObject(__u64 addr) : start(addr) {}
 
   __u64 start;
   __u64 end;
   __u64 offset;
   std::string fileName;
+  std::string baseName;
   bool operator<(const MemoryObject& other) const
   {
     return start < other.start;
@@ -181,7 +184,8 @@ InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
 
 void Profile::dump(std::ostream &os) const
 {
-  os << "events: Cycles\n";
+  os << "positions: instr\n";
+  os << "events: Cycles\n\n";
 
   for (MemoryMap::const_iterator objIt = memoryMap_.begin(); objIt != memoryMap_.end(); ++objIt)
   {
@@ -194,6 +198,7 @@ void Profile::dump(std::ostream &os) const
     if (lowIt != upperIt)
     {
       os << "ob=" << object.fileName << '\n';
+      os << "fn=whole_" << object.baseName << '\n';
       dumpSamplesRange(os, lowIt, upperIt);
       os << '\n';
     }
@@ -219,6 +224,8 @@ void Profile::dumpSamplesRange(std::ostream& os, InstrInfoStorage::const_iterato
     for (InstrInfo::CallCostStorage::const_iterator cIt = start->callCosts.begin(); cIt != start->callCosts.end();
          ++cIt)
     {
+      os << "cob=" << memoryMap_.lower_bound(MemoryObject(cIt->addr))->fileName << '\n';
+      os << "cfn=whole_" << memoryMap_.lower_bound(MemoryObject(cIt->addr))->baseName << '\n';
       os << "calls=" << cIt->count << ' ' << std::hex << "0x" << cIt->addr << std::dec << '\n';
       os << "0x" << std::hex << start->exclusiveCost.addr << std::dec << " 1\n";
     }
