@@ -3,11 +3,13 @@
 #include <iostream>
 #include <sstream>
 #include <set>
-#include <tr1/unordered_set>
+#include <vector>
 
 #include <cerrno>
 #include <climits>
 #include <cstdlib>
+
+#include <elfutils/libdwfl.h>
 
 #include <linux/perf_event.h>
 
@@ -44,16 +46,27 @@ bool readEvent(std::istream& is, perf_event& event)
 
 struct SourcePosition
 {
+  SourcePosition() : srcFile(0), srcLine(0) {}
   std::string* srcFile;
   unsigned srcLine;
 };
 
 struct Symbol
 {
+  Symbol(__u64 _start, __u64 _end, const std::string& _name)
+    : start(_start)
+    , end(_end)
+    , name(_name)
+  {}
+  explicit Symbol(__u64 addr) : start(addr) {}
   __u64 start;
   __u64 end;
   std::string name;
-  SourcePosition srcPos;
+
+  bool operator<(const Symbol& other) const
+  {
+    return start < other.start;
+  }
 };
 
 struct MemoryObject
@@ -73,36 +86,138 @@ struct MemoryObject
   __u64 offset;
   std::string fileName;
   std::string baseName;
-  std::tr1::unordered_set<Symbol> symbols;
+  typedef std::set<Symbol> SymbolStorage;
+  SymbolStorage allSymbols;
+  SymbolStorage usedSymbols;
   bool operator<(const MemoryObject& other) const
   {
     return start < other.start;
   }
   void attachSymbols();
   void detachSymbols();
-  Symbol* getOrCreateSymbol(__u64 addr);
+  const Symbol *findSymbol(__u64 addr);
   SourcePosition getSourcePosition(__u64 addr);
+
+  Dwfl* dwfl;
+  Dwfl_Module* dwMod;
+  __u64 adjust;
+  GElf_Addr bias;
 };
+
+static Dwfl_Callbacks callbacks = {
+  dwfl_build_id_find_elf,
+  dwfl_standard_find_debuginfo,
+  dwfl_offline_section_address,
+  0
+};
+
+std::string constructSymbolName(__u64 addr)
+{
+  std::stringstream ss;
+  ss << "func_" << std::hex << addr;
+  return ss.str();
+}
 
 void MemoryObject::attachSymbols()
 {
+  adjust = 0;
+  bias = 0;
+  dwfl = dwfl_begin(&callbacks);
+  if (dwfl)
+  {
+    dwMod = dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
+    if (dwMod)
+    {
+      Elf* elf = dwfl_module_getelf(dwMod, &bias);
+      GElf_Ehdr elfHeader;
+      gelf_getehdr(elf, &elfHeader);
+      if (elfHeader.e_type == ET_DYN)
+        adjust = start;
 
+      Elf_Scn* scn = 0;
+      while ((scn = elf_nextscn(elf, scn)) != 0)
+      {
+        GElf_Shdr sectHeader;
+        gelf_getshdr (scn, &sectHeader);
+
+        if (sectHeader.sh_type != SHT_DYNSYM && sectHeader.sh_type != SHT_SYMTAB)
+          continue;
+
+        Elf_Data* symData = elf_getdata(scn, 0);
+
+        size_t symCount = sectHeader.sh_size / (sectHeader.sh_entsize ? sectHeader.sh_entsize : 1);
+
+        for (size_t symIdx = 0; symIdx < symCount; symIdx++)
+        {
+          GElf_Sym elfSym;
+          gelf_getsym(symData, symIdx, &elfSym);
+
+          if (ELF32_ST_TYPE(elfSym.st_info) != STT_FUNC || elfSym.st_value == 0)
+            continue;
+
+          Symbol symbol(elfSym.st_value, elfSym.st_value + elfSym.st_size,
+                        elf_strptr(elf, sectHeader.sh_link, elfSym.st_name));
+
+          allSymbols.insert(symbol);
+        }
+      }
+    }
+    else
+      detachSymbols();
+  }
+  // Create fake symbols to cover gaps
+  std::vector<Symbol> fakeSymbols;
+  __u64 prevEnd = start - adjust;
+  for (SymbolStorage::iterator symIt = allSymbols.begin(); symIt != allSymbols.end(); ++symIt)
+  {
+    if (symIt->start - prevEnd >= 4)
+      fakeSymbols.push_back(Symbol(prevEnd, symIt->start, constructSymbolName(prevEnd)));
+
+    // Expand asm label to next symbol
+    if (symIt->start == symIt->end)
+    {
+      Symbol& symbol = const_cast<Symbol&>(*symIt);
+      SymbolStorage::iterator nextSymIt = symIt;
+      ++nextSymIt;
+      if (nextSymIt == allSymbols.end())
+        symbol.end = end - adjust;
+      else
+        symbol.end = nextSymIt->start;
+    }
+    prevEnd = symIt->end;
+  }
+  if (end - adjust - prevEnd >= 4)
+    fakeSymbols.push_back(Symbol(prevEnd, end - adjust, constructSymbolName(prevEnd)));
+
+  allSymbols.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
 
 void MemoryObject::detachSymbols()
 {
-
+  if (!dwfl)
+    return;
+  dwfl_report_end(dwfl, 0, 0);
+  dwfl_end(dwfl);
+  dwMod = 0;
+  dwfl = 0;
+  allSymbols.clear();
 }
 
-Symbol* MemoryObject::getOrCreateSymbol(__u64 addr)
+const Symbol* MemoryObject::findSymbol(__u64 addr)
 {
-  static Symbol sym = { };
-  return &sym;
+  // We must have it!
+  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - adjust));
+  --allSymbolsIt;
+
+  SymbolStorage::iterator symIt = usedSymbols.insert(*allSymbolsIt).first;
+  allSymbols.erase(allSymbolsIt);
+
+  return  &(*symIt);
 }
 
 SourcePosition MemoryObject::getSourcePosition(__u64 addr)
 {
-  SourcePosition pos = {0, 0};
+  SourcePosition pos;
   return pos;
 }
 
@@ -123,7 +238,7 @@ struct InstrInfo
   Cost exclusiveCost;
   typedef std::set<Cost> CallCostStorage;
   CallCostStorage callCosts;
-  Symbol* symbol;
+  const Symbol* symbol;
   SourcePosition sourcePos;
   bool operator<(const InstrInfo& other) const
   {
@@ -155,7 +270,7 @@ private:
   bool isMappedAddress(__u64 addr) const;
   MemoryObject& getMemoryObjectByAddr(__u64 addr) const;
   InstrInfo& getOrCreateInstrInfo(__u64 addr);
-  void dumpSamplesRange(std::ostream &os, InstrInfoStorage::const_iterator start,
+  void dumpSamplesRange(std::ostream& os, __u64 adjust, InstrInfoStorage::const_iterator start,
                         InstrInfoStorage::const_iterator finish) const;
 
   MemoryMap memoryMap_;
@@ -211,7 +326,7 @@ void Profile::addSample(const perf_event &event)
 void Profile::process()
 {
   MemoryObject* curObj = 0;
-  Symbol* curSymbol = 0;
+  const Symbol* curSymbol = 0;
   for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
   {
     InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
@@ -224,12 +339,12 @@ void Profile::process()
       curObj = &getMemoryObjectByAddr(insAddr);
       curObj->attachSymbols();
     }
-    if (!curSymbol || insAddr >= curSymbol->end)
-      curSymbol = curObj->getOrCreateSymbol(insAddr);
+    if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
+      curSymbol = curObj->findSymbol(insAddr);
 
     instr.symbol = curSymbol;
     instr.sourcePos = curObj->getSourcePosition(insAddr);
-    // call will be resolved during dumping
+    // calls will be resolved during dumping
   }
   if (curObj)
     curObj->detachSymbols();
@@ -276,7 +391,7 @@ void Profile::dump(std::ostream &os) const
     {
       os << "ob=" << object.fileName << '\n';
       os << "fn=whole_" << object.baseName << '\n';
-      dumpSamplesRange(os, lowIt, upperIt);
+      dumpSamplesRange(os, object.adjust, lowIt, upperIt);
       os << '\n';
     }
   }
@@ -290,22 +405,23 @@ void Profile::dump(std::ostream &os) const
      << '\n';
 }
 
-void Profile::dumpSamplesRange(std::ostream& os, InstrInfoStorage::const_iterator start,
+void Profile::dumpSamplesRange(std::ostream& os, __u64 adjust, InstrInfoStorage::const_iterator start,
                                InstrInfoStorage::const_iterator finish) const
 {
   for (; start != finish; start++)
   {
     if (start->exclusiveCost.count == 0)
       os << "# ";
-    os << "0x" << std::hex << start->exclusiveCost.addr << ' ' << std::dec << start->exclusiveCost.count << '\n';
+    os << "0x" << std::hex << start->exclusiveCost.addr - adjust << ' '
+       << std::dec << start->exclusiveCost.count << '\n';
     for (InstrInfo::CallCostStorage::const_iterator cIt = start->callCosts.begin(); cIt != start->callCosts.end();
          ++cIt)
     {
       const MemoryObject& object = getMemoryObjectByAddr(cIt->addr);
       os << "cob=" << object.fileName << '\n';
       os << "cfn=whole_" << object.baseName << '\n';
-      os << "calls=1 " << std::hex << "0x" << cIt->addr << std::dec << '\n';
-      os << "0x" << std::hex << start->exclusiveCost.addr << ' ' << std::dec << cIt->count << '\n';
+      os << "calls=1 " << std::hex << "0x" << cIt->addr - object.adjust << std::dec << '\n';
+      os << "0x" << std::hex << start->exclusiveCost.addr - adjust << ' ' << std::dec << cIt->count << '\n';
     }
   }
 }
