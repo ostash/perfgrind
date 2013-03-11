@@ -5,6 +5,8 @@
 #include <set>
 #include <vector>
 
+#include <cxxabi.h>
+
 #include <cerrno>
 #include <climits>
 #include <cstdlib>
@@ -56,8 +58,13 @@ struct Symbol
   Symbol(__u64 _start, __u64 _end, const std::string& _name)
     : start(_start)
     , end(_end)
-    , name(_name)
-  {}
+  {
+    char* demangledName = __cxxabiv1::__cxa_demangle(_name.c_str(), 0, 0, 0);
+    if (demangledName)
+      name = demangledName;
+    else
+      name = _name.c_str();
+  }
   explicit Symbol(__u64 addr) : start(addr) {}
   __u64 start;
   __u64 end;
@@ -95,7 +102,8 @@ struct MemoryObject
   }
   void attachSymbols();
   void detachSymbols();
-  const Symbol *findSymbol(__u64 addr);
+  const Symbol *resolveSymbol(__u64 addr);
+  const Symbol* findSymbol(__u64 addr) const;
   SourcePosition getSourcePosition(__u64 addr);
 
   Dwfl* dwfl;
@@ -203,7 +211,7 @@ void MemoryObject::detachSymbols()
   allSymbols.clear();
 }
 
-const Symbol* MemoryObject::findSymbol(__u64 addr)
+const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 {
   // We must have it!
   SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - adjust));
@@ -213,6 +221,14 @@ const Symbol* MemoryObject::findSymbol(__u64 addr)
   allSymbols.erase(allSymbolsIt);
 
   return  &(*symIt);
+}
+
+const Symbol* MemoryObject::findSymbol(__u64 addr) const
+{
+  // We must have it!
+  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - adjust));
+  --symIt;
+  return &(*symIt);
 }
 
 SourcePosition MemoryObject::getSourcePosition(__u64 addr)
@@ -270,8 +286,6 @@ private:
   bool isMappedAddress(__u64 addr) const;
   MemoryObject& getMemoryObjectByAddr(__u64 addr) const;
   InstrInfo& getOrCreateInstrInfo(__u64 addr);
-  void dumpSamplesRange(std::ostream& os, __u64 adjust, InstrInfoStorage::const_iterator start,
-                        InstrInfoStorage::const_iterator finish) const;
 
   MemoryMap memoryMap_;
   InstrInfoStorage instructions_;
@@ -340,14 +354,31 @@ void Profile::process()
       curObj->attachSymbols();
     }
     if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
-      curSymbol = curObj->findSymbol(insAddr);
+      curSymbol = curObj->resolveSymbol(insAddr);
 
     instr.symbol = curSymbol;
     instr.sourcePos = curObj->getSourcePosition(insAddr);
-    // calls will be resolved during dumping
   }
   if (curObj)
     curObj->detachSymbols();
+
+  // Fixup calls
+  // Call "to" addresses should point to first address of called function,
+  // this will allow group them as well
+  for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
+  {
+    InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
+    InstrInfo::CallCostStorage fixuped;
+    for (InstrInfo::CallCostStorage::iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end(); ++cIt)
+    {
+      const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
+      const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
+      Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callSymbol->start + callObject.adjust)).first);
+
+      fixupedCallCost.count += cIt->count;
+    }
+    instr.callCosts.swap(fixuped);
+  }
 }
 
 bool Profile::isMappedAddress(__u64 addr) const
@@ -376,23 +407,39 @@ InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
 
 void Profile::dump(std::ostream &os) const
 {
-  os << "positions: instr\n";
+  os << "positions: line\n";
   os << "events: Cycles\n\n";
 
-  for (MemoryMap::const_iterator objIt = memoryMap_.begin(); objIt != memoryMap_.end(); ++objIt)
+  MemoryObject* curObj = 0;
+  const Symbol* curSymbol = 0;
+  for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
   {
-    const MemoryObject& object = *objIt;
-    os << "# " << std::hex << object.start << '-' << object.end << ' ' << object.offset << std::dec
-       << ' ' << object.fileName << '\n';
-
-    InstrInfoStorage::const_iterator lowIt = instructions_.lower_bound(InstrInfo(object.start));
-    InstrInfoStorage::const_iterator upperIt = instructions_.upper_bound(InstrInfo(object.end));
-    if (lowIt != upperIt)
+    const InstrInfo& instr = *insIt;
+    __u64 insAddr = instr.exclusiveCost.addr;
+    if (!curObj || insAddr >= curObj->end)
     {
-      os << "ob=" << object.fileName << '\n';
-      os << "fn=whole_" << object.baseName << '\n';
-      dumpSamplesRange(os, object.adjust, lowIt, upperIt);
-      os << '\n';
+      curSymbol = 0;
+      curObj = &getMemoryObjectByAddr(insAddr);
+      os << "\nob=" << curObj->fileName << "\nfl=???";
+    }
+    if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
+    {
+      curSymbol = instr.symbol;
+      os << "\nfn=" << curSymbol->name << '\n';
+    }
+
+    if (instr.exclusiveCost.count != 0)
+      os << "0 " << std::dec << instr.exclusiveCost.count << '\n';
+
+    for (InstrInfo::CallCostStorage::const_iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end();
+         ++cIt)
+    {
+      const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
+      os << "cob=" << callObject.fileName << "\ncfi=???\n";
+      const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
+      os << "cfn=" << callSymbol->name << '\n';
+      os << "calls=1 0\n";
+      os << "0 " << cIt->count << '\n';
     }
   }
 
@@ -403,27 +450,6 @@ void Profile::dump(std::ostream &os) const
      << "\n# total sample events: " << badSamplesCount_ + goodSamplesCount_
      << "\n# total events: " << badSamplesCount_ + goodSamplesCount_ + memoryMap_.size()
      << '\n';
-}
-
-void Profile::dumpSamplesRange(std::ostream& os, __u64 adjust, InstrInfoStorage::const_iterator start,
-                               InstrInfoStorage::const_iterator finish) const
-{
-  for (; start != finish; start++)
-  {
-    if (start->exclusiveCost.count == 0)
-      os << "# ";
-    os << "0x" << std::hex << start->exclusiveCost.addr - adjust << ' '
-       << std::dec << start->exclusiveCost.count << '\n';
-    for (InstrInfo::CallCostStorage::const_iterator cIt = start->callCosts.begin(); cIt != start->callCosts.end();
-         ++cIt)
-    {
-      const MemoryObject& object = getMemoryObjectByAddr(cIt->addr);
-      os << "cob=" << object.fileName << '\n';
-      os << "cfn=whole_" << object.baseName << '\n';
-      os << "calls=1 " << std::hex << "0x" << cIt->addr - object.adjust << std::dec << '\n';
-      os << "0x" << std::hex << start->exclusiveCost.addr - adjust << ' ' << std::dec << cIt->count << '\n';
-    }
-  }
 }
 
 void processEvent(Profile& profile, const perf_event& event)
