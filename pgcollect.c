@@ -221,7 +221,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
   }
 }
 
-static int createPerfEvent(const struct PGCollectState* state)
+static int createPerfEvent(const struct PGCollectState* state, int cpu)
 {
   struct perf_event_attr pe_attr;
   memset(&pe_attr, 0, sizeof(struct perf_event_attr));
@@ -234,18 +234,19 @@ static int createPerfEvent(const struct PGCollectState* state)
   pe_attr.sample_freq = 4000;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
   pe_attr.disabled = (state->gogoFD == -1) ? 0 : 1;
-//  pe_attr.inherit = 1;
+  pe_attr.inherit = 1;
   pe_attr.exclude_kernel = 1;
   pe_attr.exclude_hv = 1;
   pe_attr.mmap = 1;
   pe_attr.freq = 1;
   pe_attr.enable_on_exec = 1;
+  pe_attr.task = 1;
 //  pe_attr.precise_ip = 2;
 
   // Wake for every Xth event
 //  pe_attr.wakeup_events = 5;
 
-  int fd = perf_event_open(&pe_attr, state->pid, -1, -1, 0);
+  int fd = perf_event_open(&pe_attr, state->pid, cpu, -1, 0);
   if (fd == -1)
   {
     perror("Can't create performance event file descriptor");
@@ -356,12 +357,17 @@ int main(int argc, char** argv)
   struct PGCollectState state;
   prepareState(&state, argc, argv);
 
-  int perfEventFD = createPerfEvent(&state);
-  struct PerfMmapArea perfEventArea;
-  mmapPerfEvent(&perfEventArea, perfEventFD, &state);
+  int cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
+  int perfEventFD[cpuCount];
+  struct PerfMmapArea perfEventArea[cpuCount];
+  struct pollfd pollData[cpuCount];
 
-  struct pollfd pollData;
-  fillPollData(&pollData, perfEventFD);
+  for (int cpu = 0; cpu < cpuCount; cpu++)
+  {
+    perfEventFD[cpu] = createPerfEvent(&state, cpu);
+    mmapPerfEvent(&perfEventArea[cpu], perfEventFD[cpu], &state);
+    fillPollData(&pollData[cpu], perfEventFD[cpu]);
+  }
 
   setupSignalHandlers(signalHandler);
 
@@ -370,12 +376,13 @@ int main(int argc, char** argv)
 
   while (1)
   {
-    processEvents(&perfEventArea, &state);
+    for (int cpu = 0; cpu < cpuCount; cpu++)
+      processEvents(&perfEventArea[cpu], &state);
 
     if (stopCollecting)
       break;
 
-    if (poll(&pollData, 1, -1) == -1 && errno != EINTR)
+    if (poll(pollData, cpuCount, -1) == -1 && errno != EINTR)
     {
       perror("Poll error");
       stopCollecting = 1;
