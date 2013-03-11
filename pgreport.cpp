@@ -15,6 +15,10 @@
 
 #include <linux/perf_event.h>
 
+#ifndef PERF_MAX_STACK_DEPTH
+#define PERF_MAX_STACK_DEPTH 127
+#endif
+
 struct perf_event
 {
   struct perf_event_header header;
