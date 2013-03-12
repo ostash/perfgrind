@@ -199,8 +199,18 @@ void MemoryObject::attachSymbols()
       Elf* elf = dwfl_module_getelf(dwMod, &bias);
       GElf_Ehdr elfHeader;
       gelf_getehdr(elf, &elfHeader);
-      if (elfHeader.e_type == ET_DYN)
-        adjust = start;
+
+      for (int i = 0; i < elfHeader.e_phnum; i++)
+      {
+        GElf_Phdr phdr;
+        gelf_getphdr(elf, i, &phdr);
+        if (phdr.p_type == PT_LOAD)
+        {
+          adjust = phdr.p_vaddr;
+          break;
+        }
+      }
+
       loadSymbolsFromElfSection(elf, SHT_DYNSYM);
       loadSymbolsFromElfSection(elf, SHT_SYMTAB);
 
@@ -226,7 +236,7 @@ void MemoryObject::attachSymbols()
   }
   // Create fake symbols to cover gaps
   std::vector<Symbol> fakeSymbols;
-  __u64 prevEnd = start - adjust;
+  __u64 prevEnd = adjust;
   for (SymbolStorage::iterator symIt = allSymbols.begin(); symIt != allSymbols.end(); ++symIt)
   {
     if (symIt->start - prevEnd >= 4)
@@ -239,7 +249,7 @@ void MemoryObject::attachSymbols()
       SymbolStorage::iterator nextSymIt = symIt;
       ++nextSymIt;
       if (nextSymIt == allSymbols.end())
-        symbol.end = end - adjust;
+        symbol.end = end - start + adjust;
       else
         symbol.end = nextSymIt->start;
       // add object base name
@@ -249,8 +259,8 @@ void MemoryObject::attachSymbols()
     }
     prevEnd = symIt->end;
   }
-  if (end - adjust - prevEnd >= 4)
-    fakeSymbols.push_back(Symbol(prevEnd, end - adjust, constructSymbolName(prevEnd)));
+  if (end - start + adjust - prevEnd >= 4)
+    fakeSymbols.push_back(Symbol(prevEnd, end - start + adjust, constructSymbolName(prevEnd)));
 
   allSymbols.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
@@ -269,7 +279,7 @@ void MemoryObject::detachSymbols()
 const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 {
   // We must have it!
-  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - adjust));
+  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - start + adjust));
   --allSymbolsIt;
 
   SymbolStorage::iterator symIt = usedSymbols.insert(*allSymbolsIt).first;
@@ -283,7 +293,7 @@ const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 const Symbol* MemoryObject::findSymbol(__u64 addr) const
 {
   // We must have it!
-  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - adjust));
+  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - start + adjust));
   --symIt;
   return &(*symIt);
 }
@@ -293,7 +303,7 @@ SourcePosition MemoryObject::getSourcePosition(__u64 addr)
   SourcePosition pos;
   if (dwfl)
   {
-    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - adjust + bias);
+    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - start + adjust + bias);
     if (line)
     {
       int linep;
@@ -425,7 +435,7 @@ void Profile::process()
       curObj = &getMemoryObjectByAddr(insAddr);
       curObj->attachSymbols();
     }
-    if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
+    if (!curSymbol || insAddr - curObj->start + curObj->adjust >= curSymbol->end)
       curSymbol = curObj->resolveSymbol(insAddr);
 
     instr.symbol = curSymbol;
@@ -445,7 +455,8 @@ void Profile::process()
     {
       const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
       const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
-      Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callSymbol->start + callObject.adjust)).first);
+      Cost &fixupedCallCost = const_cast<Cost&>(
+            *fixuped.insert(Cost(callObject.start + callSymbol->start - callObject.adjust)).first);
 
       fixupedCallCost.count += cIt->count;
       fixupedCallCost.sourcePos = callSymbol->startSrcPos;
@@ -504,7 +515,7 @@ void Profile::dump(std::ostream &os) const
       curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
       os << "fl=" << *curFile << '\n';
     }
-    if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
+    if (!curSymbol || insAddr - curObj->start + curObj->adjust >= curSymbol->end)
     {
       curSymbol = instr.symbol;
       os << "fn=" << curSymbol->name << '\n';
