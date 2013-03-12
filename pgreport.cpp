@@ -106,6 +106,7 @@ struct MemoryObject
     return start < other.start;
   }
   void attachSymbols();
+  void loadSymbolsFromElfSection(Elf* elf, unsigned sectionType);
   void detachSymbols();
   const Symbol *resolveSymbol(__u64 addr);
   const Symbol* findSymbol(__u64 addr) const;
@@ -131,6 +132,48 @@ std::string constructSymbolName(__u64 addr)
   return ss.str();
 }
 
+void MemoryObject::loadSymbolsFromElfSection(Elf *elf, unsigned sectionType)
+{
+  Elf_Scn* scn = 0;
+  while ((scn = elf_nextscn(elf, scn)) != 0)
+  {
+    GElf_Shdr sectHeader;
+    gelf_getshdr (scn, &sectHeader);
+
+    if (sectHeader.sh_type != sectionType)
+      continue;
+
+    Elf_Data* symData = elf_getdata(scn, 0);
+
+    size_t symCount = sectHeader.sh_size / (sectHeader.sh_entsize ? sectHeader.sh_entsize : 1);
+
+    for (size_t symIdx = 0; symIdx < symCount; symIdx++)
+    {
+      GElf_Sym elfSym;
+      gelf_getsym(symData, symIdx, &elfSym);
+
+      if (ELF32_ST_TYPE(elfSym.st_info) != STT_FUNC || elfSym.st_value == 0)
+        continue;
+
+      Symbol symbol(elfSym.st_value, elfSym.st_value + elfSym.st_size,
+                    elf_strptr(elf, sectHeader.sh_link, elfSym.st_name));
+
+      symbol.binding = ELF32_ST_BIND(elfSym.st_info);
+      std::pair<SymbolStorage::iterator, bool> symIns = allSymbols.insert(symbol);
+      if (!symIns.second)
+      {
+        Symbol& oldSym = const_cast<Symbol&>(*symIns.first);
+        // G > W > L
+        if (symbol.binding == STB_GLOBAL || (symbol.binding == STB_WEAK && oldSym.binding == STB_LOCAL))
+        {
+          oldSym.name = symbol.name;
+          oldSym.binding = symbol.binding;
+        }
+      }
+    }
+  }
+}
+
 void MemoryObject::attachSymbols()
 {
   adjust = 0;
@@ -138,13 +181,8 @@ void MemoryObject::attachSymbols()
   dwfl = dwfl_begin(&callbacks);
   if (dwfl)
   {
-    std::stringstream ss;
-    ss << "/usr/lib/debug" << fileName << ".debug";
-    std::string debugFile = ss.str();
-    dwMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
-    if (!dwMod)
-      dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
-
+    // First try main file
+    dwMod = dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
     if (dwMod)
     {
       Elf* elf = dwfl_module_getelf(dwMod, &bias);
@@ -152,44 +190,24 @@ void MemoryObject::attachSymbols()
       gelf_getehdr(elf, &elfHeader);
       if (elfHeader.e_type == ET_DYN)
         adjust = start;
+      loadSymbolsFromElfSection(elf, SHT_DYNSYM);
+      loadSymbolsFromElfSection(elf, SHT_SYMTAB);
 
-      Elf_Scn* scn = 0;
-      while ((scn = elf_nextscn(elf, scn)) != 0)
+      // It could happen that we have debug info in separate file
+      std::stringstream ss;
+      ss << "/usr/lib/debug" << fileName << ".debug";
+      std::string debugFile = ss.str();
+      Dwfl_Module* debugMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
+      if (debugMod)
       {
-        GElf_Shdr sectHeader;
-        gelf_getshdr (scn, &sectHeader);
+        // Clean all
+        dwfl_report_end(dwfl, 0, 0);
+        // Load debug file
+        dwMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
+        elf = dwfl_module_getelf(dwMod, &bias);
 
-        if (sectHeader.sh_type != SHT_DYNSYM && sectHeader.sh_type != SHT_SYMTAB)
-          continue;
-
-        Elf_Data* symData = elf_getdata(scn, 0);
-
-        size_t symCount = sectHeader.sh_size / (sectHeader.sh_entsize ? sectHeader.sh_entsize : 1);
-
-        for (size_t symIdx = 0; symIdx < symCount; symIdx++)
-        {
-          GElf_Sym elfSym;
-          gelf_getsym(symData, symIdx, &elfSym);
-
-          if (ELF32_ST_TYPE(elfSym.st_info) != STT_FUNC || elfSym.st_value == 0)
-            continue;
-
-          Symbol symbol(elfSym.st_value, elfSym.st_value + elfSym.st_size,
-                        elf_strptr(elf, sectHeader.sh_link, elfSym.st_name));
-
-          symbol.binding = ELF32_ST_BIND(elfSym.st_info);
-          std::pair<SymbolStorage::iterator, bool> symIns = allSymbols.insert(symbol);
-          if (!symIns.second)
-          {
-            Symbol& oldSym = const_cast<Symbol&>(*symIns.first);
-            // G > W > L
-            if (symbol.binding == STB_GLOBAL || (symbol.binding == STB_WEAK && oldSym.binding == STB_LOCAL))
-            {
-              oldSym.name = symbol.name;
-              oldSym.binding = symbol.binding;
-            }
-          }
-        }
+        loadSymbolsFromElfSection(elf, SHT_DYNSYM);
+        loadSymbolsFromElfSection(elf, SHT_SYMTAB);
       }
     }
     else
