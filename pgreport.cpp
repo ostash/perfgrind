@@ -4,6 +4,7 @@
 #include <sstream>
 #include <set>
 #include <vector>
+#include <tr1/unordered_set>
 
 #include <cxxabi.h>
 
@@ -53,7 +54,7 @@ bool readEvent(std::istream& is, perf_event& event)
 struct SourcePosition
 {
   SourcePosition() : srcFile(0), srcLine(0) {}
-  std::string* srcFile;
+  const std::string* srcFile;
   unsigned srcLine;
 };
 
@@ -74,6 +75,7 @@ struct Symbol
   __u64 end;
   char binding;
   std::string name;
+  SourcePosition startSrcPos;
 
   bool operator<(const Symbol& other) const
   {
@@ -101,6 +103,7 @@ struct MemoryObject
   typedef std::set<Symbol> SymbolStorage;
   SymbolStorage allSymbols;
   SymbolStorage usedSymbols;
+  std::tr1::unordered_set<std::string> sourceFiles;
   bool operator<(const MemoryObject& other) const
   {
     return start < other.start;
@@ -272,6 +275,8 @@ const Symbol* MemoryObject::resolveSymbol(__u64 addr)
   SymbolStorage::iterator symIt = usedSymbols.insert(*allSymbolsIt).first;
   allSymbols.erase(allSymbolsIt);
 
+  const_cast<Symbol&>(*symIt).startSrcPos = getSourcePosition(symIt->start);
+
   return  &(*symIt);
 }
 
@@ -286,6 +291,21 @@ const Symbol* MemoryObject::findSymbol(__u64 addr) const
 SourcePosition MemoryObject::getSourcePosition(__u64 addr)
 {
   SourcePosition pos;
+  if (dwfl)
+  {
+    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - adjust + bias);
+    if (line)
+    {
+      int linep;
+      const char* srcFile = dwfl_lineinfo(line, 0, &linep, 0, 0, 0);
+      if (srcFile)
+      {
+        pos.srcFile = &(*sourceFiles.insert(srcFile).first);
+        pos.srcLine = linep;
+      }
+    }
+  }
+
   return pos;
 }
 
@@ -294,6 +314,7 @@ struct Cost
   explicit Cost(__u64 _addr) : addr(_addr), count(0) {}
   __u64 addr;
   __u64 count;
+  SourcePosition sourcePos;
   bool operator<(const Cost& other) const
   {
     return addr < other.addr;
@@ -307,7 +328,6 @@ struct InstrInfo
   typedef std::set<Cost> CallCostStorage;
   CallCostStorage callCosts;
   const Symbol* symbol;
-  SourcePosition sourcePos;
   bool operator<(const InstrInfo& other) const
   {
     return exclusiveCost < other.exclusiveCost;
@@ -409,7 +429,7 @@ void Profile::process()
       curSymbol = curObj->resolveSymbol(insAddr);
 
     instr.symbol = curSymbol;
-    instr.sourcePos = curObj->getSourcePosition(insAddr);
+    instr.exclusiveCost.sourcePos = curObj->getSourcePosition(insAddr);
   }
   if (curObj)
     curObj->detachSymbols();
@@ -428,6 +448,7 @@ void Profile::process()
       Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callSymbol->start + callObject.adjust)).first);
 
       fixupedCallCost.count += cIt->count;
+      fixupedCallCost.sourcePos = callSymbol->startSrcPos;
     }
     instr.callCosts.swap(fixuped);
   }
@@ -464,6 +485,8 @@ void Profile::dump(std::ostream &os) const
 
   MemoryObject* curObj = 0;
   const Symbol* curSymbol = 0;
+  const std::string unknownFile = "???";
+  const std::string* curFile = 0;
   for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
   {
     const InstrInfo& instr = *insIt;
@@ -471,8 +494,15 @@ void Profile::dump(std::ostream &os) const
     if (!curObj || insAddr >= curObj->end)
     {
       curSymbol = 0;
+      curFile = 0;
       curObj = &getMemoryObjectByAddr(insAddr);
-      os << "\nob=" << curObj->fileName << "\nfl=???";
+      os << "\nob=" << curObj->fileName;
+    }
+    if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
+        || (curFile != &unknownFile && curFile != instr.exclusiveCost.sourcePos.srcFile))
+    {
+      curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
+      os << "\nfl=" << *curFile;
     }
     if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
     {
@@ -481,17 +511,23 @@ void Profile::dump(std::ostream &os) const
     }
 
     if (instr.exclusiveCost.count != 0)
-      os << "0 " << std::dec << instr.exclusiveCost.count << '\n';
+      os << instr.exclusiveCost.sourcePos.srcLine << ' ' << instr.exclusiveCost.count << '\n';
 
     for (InstrInfo::CallCostStorage::const_iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end();
          ++cIt)
     {
       const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
-      os << "cob=" << callObject.fileName << "\ncfi=???\n";
+      os << "cob=" << callObject.fileName << '\n';
       const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
+      os << "cfi=";
+      if (callSymbol->startSrcPos.srcFile)
+        os << *callSymbol->startSrcPos.srcFile;
+      else
+        os << unknownFile;
+      os << '\n';
       os << "cfn=" << callSymbol->name << '\n';
-      os << "calls=1 0\n";
-      os << "0 " << cIt->count << '\n';
+      os << "calls=1 " << callSymbol->startSrcPos.srcLine <<  '\n';
+      os << instr.exclusiveCost.sourcePos.srcLine << ' ' << cIt->count << '\n';
     }
   }
 
