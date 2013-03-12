@@ -163,6 +163,14 @@ void MemoryObject::loadSymbolsFromElfSection(Elf *elf, unsigned sectionType)
       if (!symIns.second)
       {
         Symbol& oldSym = const_cast<Symbol&>(*symIns.first);
+        // Sized functions better that asm labels
+        if (oldSym.end == oldSym.start && elfSym.st_size != 0)
+        {
+          oldSym.name = symbol.name;
+          oldSym.binding = symbol.binding;
+          oldSym.end = symbol.end;
+        }
+        else
         // G > W > L
         if (symbol.binding == STB_GLOBAL || (symbol.binding == STB_WEAK && oldSym.binding == STB_LOCAL))
         {
