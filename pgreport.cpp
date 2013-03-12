@@ -496,18 +496,18 @@ void Profile::dump(std::ostream &os) const
       curSymbol = 0;
       curFile = 0;
       curObj = &getMemoryObjectByAddr(insAddr);
-      os << "\nob=" << curObj->fileName;
+      os << "ob=" << curObj->fileName << '\n';
     }
     if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
         || (curFile != &unknownFile && curFile != instr.exclusiveCost.sourcePos.srcFile))
     {
       curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
-      os << "\nfl=" << *curFile;
+      os << "fl=" << *curFile << '\n';
     }
     if (!curSymbol || insAddr - curObj->adjust >= curSymbol->end)
     {
       curSymbol = instr.symbol;
-      os << "\nfn=" << curSymbol->name << '\n';
+      os << "fn=" << curSymbol->name << '\n';
     }
 
     if (instr.exclusiveCost.count != 0)
