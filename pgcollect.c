@@ -1,9 +1,11 @@
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +23,8 @@ static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu, int
 
 struct PGCollectState
 {
-  pid_t pid;
+  size_t taskCount;
+  pid_t* pids;
   int gogoFD;
   FILE* output;
   unsigned wakeupCount;
@@ -51,6 +54,37 @@ static void setupSignalHandlers(sighandler_t handler)
   signal(SIGCHLD, handler);
 }
 
+static void collectTasks(struct PGCollectState* state, pid_t pid)
+{
+  char taskPath[PATH_MAX];
+  snprintf(taskPath, sizeof(taskPath), "/proc/%lld/task", (long long)pid);
+
+  DIR* taskDir = opendir(taskPath);
+  if (!taskDir)
+  {
+    fprintf(stderr, "Can't open task directory %s: %s\n", taskPath, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  size_t taskAlloc = 1024;
+  state->pids = malloc(taskAlloc * sizeof(pid));
+  state->taskCount = 0;
+
+  struct dirent* task;
+  while ((task = readdir(taskDir)) != 0)
+  {
+    pid_t taskPid = strtoll(task->d_name, 0, 10);
+    if (!taskPid)
+      continue;
+    state->pids[state->taskCount] = taskPid;
+    state->taskCount++;
+    if (state->taskCount >= taskAlloc)
+      state->pids = realloc(state->pids, (taskAlloc += 1024) * sizeof(pid_t));
+  }
+
+  closedir(taskDir);
+}
+
 static void collectExistingMappings(struct PGCollectState* state)
 {
   struct mmap_event {
@@ -63,7 +97,7 @@ static void collectExistingMappings(struct PGCollectState* state)
   };
 
   char mapFileName[PATH_MAX];
-  snprintf(mapFileName, sizeof(mapFileName), "/proc/%d/maps", state->pid);
+  snprintf(mapFileName, sizeof(mapFileName), "/proc/%lld/maps", (long long)state->pids[0]);
 
   FILE *mapFile = fopen(mapFileName, "r");
   if (mapFile == 0)
@@ -75,8 +109,8 @@ static void collectExistingMappings(struct PGCollectState* state)
   struct mmap_event event;
   event.header.type = PERF_RECORD_MMAP;
   event.header.misc = PERF_RECORD_MISC_USER;
-  event.pid = state->pid;
-  event.tid = state->pid;
+  event.pid = state->pids[0];
+  event.tid = state->pids[0];
 
   while (1)
   {
@@ -141,7 +175,8 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     errno = 0;
     char* endptr;
     state->gogoFD = -1;
-    state->pid = strtol(argv[3], &endptr, 10);
+
+    pid_t pid = strtoll(argv[3], &endptr, 10);
     if (errno != 0 || *endptr != 0)
     {
       fprintf(stderr, "Bad PID '%s' or process doesn't exist: %s\n", argv[3], strerror(errno));
@@ -149,7 +184,8 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     }
     else
     {
-      fprintf(stdout, "Going to profile process with PID %lld\n", (long long)state->pid);
+      fprintf(stdout, "Going to profile process with PID %lld\n", (long long)pid);
+      collectTasks(state, pid);
       collectExistingMappings(state);
     }
   }
@@ -164,14 +200,16 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 
     state->gogoFD = profilingStart[1];
 
-    state->pid = fork();
-    if (state->pid == -1)
+    state->taskCount = 1;
+    state->pids = malloc(sizeof(pid_t));
+    state->pids[0] = fork();
+    if (state->pids[0] == -1)
     {
       perror("Can't fork");
       exit(EXIT_FAILURE);
     }
 
-    if (state->pid == 0)
+    if (state->pids[0] == 0)
     {
       // Child actions
 
@@ -213,7 +251,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
       }
       close(childReadiness[0]);
 
-      fprintf(stdout, "Going to profile process with PID %lld:", (long long)state->pid);
+      fprintf(stdout, "Going to profile process with PID %lld:", (long long)state->pids[0]);
       for (int i = 2; i < argc; i++)
         fprintf(stdout, " %s", argv[i]);
       fputc('\n', stdout);
@@ -221,10 +259,12 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
   }
 }
 
-static int createPerfEvent(const struct PGCollectState* state, int cpu)
+static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cpu)
 {
   struct perf_event_attr pe_attr;
   memset(&pe_attr, 0, sizeof(struct perf_event_attr));
+
+  bool forkMode = (state->gogoFD != -1);
 
   pe_attr.type = PERF_TYPE_HARDWARE;
 //  pe_attr.type = PERF_TYPE_SOFTWARE;
@@ -233,20 +273,20 @@ static int createPerfEvent(const struct PGCollectState* state, int cpu)
 //  pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
   pe_attr.sample_freq = 4000;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
-  pe_attr.disabled = (state->gogoFD == -1) ? 0 : 1;
-  pe_attr.inherit = 1;
+  pe_attr.disabled = forkMode;
+  pe_attr.inherit = forkMode;
   pe_attr.exclude_kernel = 1;
   pe_attr.exclude_hv = 1;
   pe_attr.mmap = 1;
   pe_attr.freq = 1;
-  pe_attr.enable_on_exec = 1;
+  pe_attr.enable_on_exec = forkMode;
   pe_attr.task = 1;
 //  pe_attr.precise_ip = 2;
 
   // Wake for every Xth event
 //  pe_attr.wakeup_events = 5;
 
-  int fd = perf_event_open(&pe_attr, state->pid, cpu, -1, 0);
+  int fd = perf_event_open(&pe_attr, pid, cpu, -1, 0);
   if (fd == -1)
   {
     perror("Can't create performance event file descriptor");
@@ -357,16 +397,29 @@ int main(int argc, char** argv)
   struct PGCollectState state;
   prepareState(&state, argc, argv);
 
-  int cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
-  int perfEventFD[cpuCount];
-  struct PerfMmapArea perfEventArea[cpuCount];
-  struct pollfd pollData[cpuCount];
+  int eventFdCount = 0;
+  // In fork mode we open one fd per cpu
+  // In follow mode we open one fd per task
+  if (state.gogoFD != -1)
+    eventFdCount = sysconf(_SC_NPROCESSORS_ONLN);
+  else
+    eventFdCount = state.taskCount;
 
-  for (int cpu = 0; cpu < cpuCount; cpu++)
+  int perfEventFD[eventFdCount];
+  struct PerfMmapArea perfEventArea[eventFdCount];
+  struct pollfd pollData[eventFdCount];
+
+  if (state.gogoFD != -1)
+    for (int cpu = 0; cpu < eventFdCount; cpu++)
+      perfEventFD[cpu] = createPerfEvent(&state, state.pids[0], cpu);
+  else
+    for (int pidId = 0; pidId < eventFdCount; pidId++)
+      perfEventFD[pidId] = createPerfEvent(&state, state.pids[pidId], -1);
+
+  for (int eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
   {
-    perfEventFD[cpu] = createPerfEvent(&state, cpu);
-    mmapPerfEvent(&perfEventArea[cpu], perfEventFD[cpu], &state);
-    fillPollData(&pollData[cpu], perfEventFD[cpu]);
+    mmapPerfEvent(&perfEventArea[eventFdIdx], perfEventFD[eventFdIdx], &state);
+    fillPollData(&pollData[eventFdIdx], perfEventFD[eventFdIdx]);
   }
 
   setupSignalHandlers(signalHandler);
@@ -376,13 +429,13 @@ int main(int argc, char** argv)
 
   while (1)
   {
-    for (int cpu = 0; cpu < cpuCount; cpu++)
-      processEvents(&perfEventArea[cpu], &state);
+    for (int eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
+      processEvents(&perfEventArea[eventFdIdx], &state);
 
     if (stopCollecting)
       break;
 
-    if (poll(pollData, cpuCount, -1) == -1 && errno != EINTR)
+    if (poll(pollData, eventFdCount, -1) == -1 && errno != EINTR)
     {
       perror("Poll error");
       stopCollecting = 1;
@@ -393,7 +446,7 @@ int main(int argc, char** argv)
   setupSignalHandlers(SIG_DFL);
   // Stop child
   if (state.gogoFD != -1)
-    kill(state.pid, SIGTERM);
+    kill(state.pids[0], SIGTERM);
 
   puts("Collection stopped.");
   fclose(state.output);
