@@ -148,7 +148,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 {
   if (argc < 3)
   {
-    fprintf(stdout, "Usage: %s outfile.pdata {-p pid | cmd}\n", program_invocation_short_name);
+    fprintf(stdout, "Usage: %s outfile.pgdata {-p pid | cmd}\n", program_invocation_short_name);
     exit(EXIT_SUCCESS);
   }
 
