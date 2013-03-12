@@ -72,6 +72,7 @@ struct Symbol
   explicit Symbol(__u64 addr) : start(addr) {}
   __u64 start;
   __u64 end;
+  char binding;
   std::string name;
 
   bool operator<(const Symbol& other) const
@@ -137,7 +138,13 @@ void MemoryObject::attachSymbols()
   dwfl = dwfl_begin(&callbacks);
   if (dwfl)
   {
-    dwMod = dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
+    std::stringstream ss;
+    ss << "/usr/lib/debug" << fileName << ".debug";
+    std::string debugFile = ss.str();
+    dwMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
+    if (!dwMod)
+      dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
+
     if (dwMod)
     {
       Elf* elf = dwfl_module_getelf(dwMod, &bias);
@@ -170,7 +177,18 @@ void MemoryObject::attachSymbols()
           Symbol symbol(elfSym.st_value, elfSym.st_value + elfSym.st_size,
                         elf_strptr(elf, sectHeader.sh_link, elfSym.st_name));
 
-          allSymbols.insert(symbol);
+          symbol.binding = ELF32_ST_BIND(elfSym.st_info);
+          std::pair<SymbolStorage::iterator, bool> symIns = allSymbols.insert(symbol);
+          if (!symIns.second)
+          {
+            Symbol& oldSym = const_cast<Symbol&>(*symIns.first);
+            // G > W > L
+            if (symbol.binding == STB_GLOBAL || (symbol.binding == STB_WEAK && oldSym.binding == STB_LOCAL))
+            {
+              oldSym.name = symbol.name;
+              oldSym.binding = symbol.binding;
+            }
+          }
         }
       }
     }
