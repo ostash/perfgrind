@@ -239,6 +239,10 @@ void MemoryObject::attachSymbols()
         symbol.end = end - adjust;
       else
         symbol.end = nextSymIt->start;
+      // add object base name
+      std::stringstream ss;
+      ss << symbol.name << '@' << baseName;
+      symbol.name = ss.str();
     }
     prevEnd = symIt->end;
   }
