@@ -1,0 +1,15 @@
+# Site specific configuration
+site.mak
+
+# Qt Creator project files
+perfgrind.config
+perfgrind.creator*
+perfgrind.files
+perfgrind.includes
+
+# Build artifacts
+pgcollect
+pgreport
+
+# Doxygen documentation
+html
