@@ -108,9 +108,8 @@ public:
     : start_(event.address)
     , end_(event.address + event.length)
     , fileName_(event.fileName)
-  {
-    baseName_ = fileName_.substr(fileName_.rfind('/') + 1);
-  }
+    , baseName_(fileName_.substr(fileName_.rfind('/') + 1))
+  {}
 
   /// Returns start address at which object was placed in program image
   __u64 start() const { return start_; }
@@ -138,8 +137,9 @@ public:
   }
 private:
   const __u64 start_;
-  __u64 end_;
-  std::string fileName_;
+  const __u64 end_;
+  const std::string fileName_;
+  const std::string baseName_;
 
   typedef std::set<Symbol> SymbolStorage;
   SymbolStorage allSymbols_;
@@ -150,8 +150,6 @@ private:
   Dwfl_Module* dwMod_;
   __u64 adjust_;
   GElf_Addr dwBias_;
-
-  std::string baseName_;
 
   void loadSymbolsFromElfSection(Elf* elf, unsigned sectionType);
 };
