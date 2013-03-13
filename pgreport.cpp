@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <set>
 #include <vector>
@@ -95,7 +96,6 @@ public:
   {
     baseName_ = fileName_.substr(fileName_.rfind('/') + 1);
   }
-  explicit MemoryObject(__u64 addr) : start_(addr) {}
 
   /// Returns start address at which object was placed in program image
   __u64 start() const { return start_; }
@@ -122,7 +122,7 @@ public:
     return start_ < other.start_;
   }
 private:
-  __u64 start_;
+  const __u64 start_;
   __u64 end_;
   std::string fileName_;
 
@@ -382,11 +382,12 @@ public:
 
   void dump(std::ostream& os) const;
 private:
-  typedef std::set<MemoryObject> MemoryMap;
+  typedef std::map<__u64, MemoryObject> MemoryMap;
   typedef std::set<InstrInfo> InstrInfoStorage;
 
-  bool isMappedAddress(__u64 addr) const;
-  MemoryObject& getMemoryObjectByAddr(__u64 addr) const;
+  bool isMappedAddress(__u64 isMappedAddress) const;
+  MemoryObject &findMemoryObject(__u64 address);
+  const MemoryObject& findMemoryObject(__u64 address) const;
   InstrInfo& getOrCreateInstrInfo(__u64 addr);
 
   MemoryMap memoryMap_;
@@ -397,7 +398,7 @@ private:
 
 void Profile::addMemoryObject(const perf_event &event)
 {
-  memoryMap_.insert(MemoryObject(event));
+  memoryMap_.insert(MemoryMap::value_type(event.mmap_event.addr, MemoryObject(event)));
 }
 
 void Profile::addSample(const perf_event &event)
@@ -452,7 +453,7 @@ void Profile::process()
       if (curObj)
         curObj->detachSymbols();
       curSymbol = 0;
-      curObj = &getMemoryObjectByAddr(globalAddr);
+      curObj = &findMemoryObject(globalAddr);
       curObj->attachSymbols();
     }
     __u64 mappedAddress = curObj->mapTo(globalAddr);
@@ -474,7 +475,7 @@ void Profile::process()
     InstrInfo::CallCostStorage fixuped;
     for (InstrInfo::CallCostStorage::iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end(); ++cIt)
     {
-      const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
+      const MemoryObject& callObject = findMemoryObject(cIt->addr);
       const Symbol* callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
       Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callObject.unmapFrom(callSymbol->start))).first);
       fixupedCallCost.count += cIt->count;
@@ -484,22 +485,27 @@ void Profile::process()
   }
 }
 
-bool Profile::isMappedAddress(__u64 addr) const
+bool Profile::isMappedAddress(__u64 address) const
 {
-  MemoryMap::const_iterator objIt = memoryMap_.upper_bound(MemoryObject(addr));
+  MemoryMap::const_iterator objIt = memoryMap_.upper_bound(address);
 
   if (objIt != memoryMap_.begin())
   {
     --objIt;
-    return addr >= objIt->start() && addr < objIt->end();
+    return address >= objIt->second.start() && address < objIt->second.end();
   }
 
   return false;
 }
 
-MemoryObject& Profile::getMemoryObjectByAddr(__u64 addr) const
+MemoryObject& Profile::findMemoryObject(__u64 address)
 {
-  return const_cast<MemoryObject&>(*(--(memoryMap_.upper_bound(MemoryObject(addr)))));
+  return (--(memoryMap_.upper_bound(address)))->second;
+}
+
+const MemoryObject& Profile::findMemoryObject(__u64 address) const
+{
+  return (--(memoryMap_.upper_bound(address)))->second;
 }
 
 InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
@@ -513,7 +519,7 @@ void Profile::dump(std::ostream &os) const
   os << "positions: line\n";
   os << "events: Cycles\n\n";
 
-  MemoryObject* curObj = 0;
+  const MemoryObject* curObj = 0;
   const Symbol* curSymbol = 0;
   const std::string unknownFile = "???";
   const std::string* curFile = 0;
@@ -525,7 +531,7 @@ void Profile::dump(std::ostream &os) const
     {
       curSymbol = 0;
       curFile = 0;
-      curObj = &getMemoryObjectByAddr(insAddr);
+      curObj = &findMemoryObject(insAddr);
       os << "ob=" << curObj->fileName() << '\n';
     }
     if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
@@ -546,7 +552,7 @@ void Profile::dump(std::ostream &os) const
     for (InstrInfo::CallCostStorage::const_iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end();
          ++cIt)
     {
-      const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
+      const MemoryObject& callObject = findMemoryObject(cIt->addr);
       os << "cob=" << callObject.fileName() << '\n';
       const Symbol* callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
       os << "cfi=";
