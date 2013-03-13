@@ -94,17 +94,16 @@ private:
   __u64 start_;
   __u64 end_;
 public:
+  /// @todo Determine how to handle pgoff
   MemoryObject(const perf_event& event)
     : start_(event.mmap_event.addr)
     , end_(event.mmap_event.addr + event.mmap_event.len)
-    , offset(event.mmap_event.pgoff)
     , fileName(event.mmap_event.filename)
   {
     baseName = fileName.substr(fileName.rfind('/') + 1);
   }
   explicit MemoryObject(__u64 addr) : start_(addr) {}
 
-  __u64 offset;
   std::string fileName;
   std::string baseName;
   typedef std::set<Symbol> SymbolStorage;
