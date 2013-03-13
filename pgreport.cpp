@@ -125,10 +125,12 @@ public:
 
   void attachSymbols();
   void detachSymbols();
-  const Symbol *resolveSymbol(__u64 address);
+  const Symbol& resolveSymbol(__u64 address);
   SourcePosition getSourcePosition(__u64 address);
 
-  const Symbol* findSymbol(__u64 address) const;
+  /** \brief Returns symbol that covers given address
+   *  \param address Address in object's space */
+  const Symbol& findSymbol(__u64 address) const;
 
   /// Compare start addresses of two memory objects
   bool operator<(const MemoryObject& other) const
@@ -309,7 +311,7 @@ void MemoryObject::detachSymbols()
   allSymbols_.clear();
 }
 
-const Symbol* MemoryObject::resolveSymbol(__u64 address)
+const Symbol& MemoryObject::resolveSymbol(__u64 address)
 {
   // We must have it!
   SymbolStorage::iterator allSymbolsIt = allSymbols_.upper_bound(Symbol(address));
@@ -320,15 +322,15 @@ const Symbol* MemoryObject::resolveSymbol(__u64 address)
 
   const_cast<Symbol&>(*symIt).startSrcPos = getSourcePosition(symIt->start);
 
-  return  &(*symIt);
+  return  *symIt;
 }
 
-const Symbol* MemoryObject::findSymbol(__u64 address) const
+const Symbol &MemoryObject::findSymbol(__u64 address) const
 {
   // We must have it!
   SymbolStorage::iterator symIt = usedSymbols_.upper_bound(Symbol(address));
   --symIt;
-  return &(*symIt);
+  return *symIt;
 }
 
 SourcePosition MemoryObject::getSourcePosition(__u64 address)
@@ -471,7 +473,7 @@ void Profile::process()
     }
     __u64 mappedAddress = curObj->mapTo(globalAddr);
     if (!curSymbol || mappedAddress >= curSymbol->end)
-      curSymbol = curObj->resolveSymbol(mappedAddress);
+      curSymbol = &curObj->resolveSymbol(mappedAddress);
 
     instr.symbol = curSymbol;
     instr.exclusiveCost.sourcePos = curObj->getSourcePosition(mappedAddress);
@@ -489,10 +491,10 @@ void Profile::process()
     for (InstrInfo::CallCostStorage::iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end(); ++cIt)
     {
       const MemoryObject& callObject = findMemoryObject(cIt->addr);
-      const Symbol* callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
-      Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callObject.unmapFrom(callSymbol->start))).first);
+      const Symbol& callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
+      Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callObject.unmapFrom(callSymbol.start))).first);
       fixupedCallCost.count += cIt->count;
-      fixupedCallCost.sourcePos = callSymbol->startSrcPos;
+      fixupedCallCost.sourcePos = callSymbol.startSrcPos;
     }
     instr.callCosts.swap(fixuped);
   }
@@ -567,15 +569,15 @@ void Profile::dump(std::ostream &os) const
     {
       const MemoryObject& callObject = findMemoryObject(cIt->addr);
       os << "cob=" << callObject.fileName() << '\n';
-      const Symbol* callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
+      const Symbol& callSymbol = callObject.findSymbol(callObject.mapTo(cIt->addr));
       os << "cfi=";
-      if (callSymbol->startSrcPos.srcFile)
-        os << *callSymbol->startSrcPos.srcFile;
+      if (callSymbol.startSrcPos.srcFile)
+        os << *callSymbol.startSrcPos.srcFile;
       else
         os << unknownFile;
       os << '\n';
-      os << "cfn=" << callSymbol->name << '\n';
-      os << "calls=1 " << callSymbol->startSrcPos.srcLine <<  '\n';
+      os << "cfn=" << callSymbol.name << '\n';
+      os << "calls=1 " << callSymbol.startSrcPos.srcLine <<  '\n';
       os << instr.exclusiveCost.sourcePos.srcLine << ' ' << cIt->count << '\n';
     }
   }
