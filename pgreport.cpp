@@ -28,6 +28,7 @@ struct perf_event
       __u32 pid, tid;
       __u64 addr;
       __u64 len;
+      /// @todo Determine how to handle pgoff
       __u64 pgoff;
       char filename[PATH_MAX];
     } mmap_event;
@@ -86,12 +87,40 @@ struct Symbol
 class MemoryObject
 {
 public:
+  /// Constructs memory object performance event
+  MemoryObject(const perf_event& event)
+    : start_(event.mmap_event.addr)
+    , end_(event.mmap_event.addr + event.mmap_event.len)
+    , fileName_(event.mmap_event.filename)
+  {
+    baseName_ = fileName_.substr(fileName_.rfind('/') + 1);
+  }
+  explicit MemoryObject(__u64 addr) : start_(addr) {}
+
   /// Returns start address at which object was placed in program image
   __u64 start() const { return start_; }
   /// Returns end address at which object was placed in program image
   __u64 end() const { return end_; }
   /// Returns full path to object file
   const std::string& fileName() const { return fileName_; }
+
+  /// Maps given address from global space to object space
+  __u64 mapTo(__u64 address) const { return address - start_ + adjust_; }
+  /// Unmaps given address from object space to global space
+  __u64 unmapFrom(__u64 address) const { return address + start_ - adjust_; }
+
+  void attachSymbols();
+  void detachSymbols();
+  const Symbol *resolveSymbol(__u64 addr);
+  SourcePosition getSourcePosition(__u64 addr);
+
+  const Symbol* findSymbol(__u64 addr) const;
+
+  /// Compare start addresses of two memory objects
+  bool operator<(const MemoryObject& other) const
+  {
+    return start_ < other.start_;
+  }
 private:
   __u64 start_;
   __u64 end_;
@@ -100,34 +129,16 @@ private:
   typedef std::set<Symbol> SymbolStorage;
   SymbolStorage allSymbols_;
   SymbolStorage usedSymbols_;
-public:
-  /// @todo Determine how to handle pgoff
-  MemoryObject(const perf_event& event)
-    : start_(event.mmap_event.addr)
-    , end_(event.mmap_event.addr + event.mmap_event.len)
-    , fileName_(event.mmap_event.filename)
-  {
-    baseName = fileName_.substr(fileName_.rfind('/') + 1);
-  }
-  explicit MemoryObject(__u64 addr) : start_(addr) {}
 
-  std::string baseName;
-  std::tr1::unordered_set<std::string> sourceFiles;
-  bool operator<(const MemoryObject& other) const
-  {
-    return start_ < other.start_;
-  }
-  void attachSymbols();
+  std::tr1::unordered_set<std::string> sourceFiles_;
+  Dwfl* dwfl_;
+  Dwfl_Module* dwMod_;
+  __u64 adjust_;
+  GElf_Addr dwBias_;
+
+  std::string baseName_;
+
   void loadSymbolsFromElfSection(Elf* elf, unsigned sectionType);
-  void detachSymbols();
-  const Symbol *resolveSymbol(__u64 addr);
-  const Symbol* findSymbol(__u64 addr) const;
-  SourcePosition getSourcePosition(__u64 addr);
-
-  Dwfl* dwfl;
-  Dwfl_Module* dwMod;
-  __u64 adjust;
-  GElf_Addr bias;
 };
 
 static Dwfl_Callbacks callbacks = {
@@ -196,16 +207,16 @@ void MemoryObject::loadSymbolsFromElfSection(Elf *elf, unsigned sectionType)
 
 void MemoryObject::attachSymbols()
 {
-  adjust = 0;
-  bias = 0;
-  dwfl = dwfl_begin(&callbacks);
-  if (dwfl)
+  adjust_ = 0;
+  dwBias_ = 0;
+  dwfl_ = dwfl_begin(&callbacks);
+  if (dwfl_)
   {
     // First try main file
-    dwMod = dwfl_report_offline(dwfl, "", fileName_.c_str(), -1);
-    if (dwMod)
+    dwMod_ = dwfl_report_offline(dwfl_, "", fileName_.c_str(), -1);
+    if (dwMod_)
     {
-      Elf* elf = dwfl_module_getelf(dwMod, &bias);
+      Elf* elf = dwfl_module_getelf(dwMod_, &dwBias_);
       GElf_Ehdr elfHeader;
       gelf_getehdr(elf, &elfHeader);
 
@@ -215,7 +226,7 @@ void MemoryObject::attachSymbols()
         gelf_getphdr(elf, i, &phdr);
         if (phdr.p_type == PT_LOAD)
         {
-          adjust = phdr.p_vaddr;
+          adjust_ = phdr.p_vaddr;
           break;
         }
       }
@@ -227,14 +238,14 @@ void MemoryObject::attachSymbols()
       std::stringstream ss;
       ss << "/usr/lib/debug" << fileName_ << ".debug";
       std::string debugFile = ss.str();
-      Dwfl_Module* debugMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
+      Dwfl_Module* debugMod = dwfl_report_offline(dwfl_, "", debugFile.c_str(), -1);
       if (debugMod)
       {
         // Clean all
-        dwfl_report_end(dwfl, 0, 0);
+        dwfl_report_end(dwfl_, 0, 0);
         // Load debug file
-        dwMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
-        elf = dwfl_module_getelf(dwMod, &bias);
+        dwMod_ = dwfl_report_offline(dwfl_, "", debugFile.c_str(), -1);
+        elf = dwfl_module_getelf(dwMod_, &dwBias_);
 
         loadSymbolsFromElfSection(elf, SHT_DYNSYM);
         loadSymbolsFromElfSection(elf, SHT_SYMTAB);
@@ -245,7 +256,7 @@ void MemoryObject::attachSymbols()
   }
   // Create fake symbols to cover gaps
   std::vector<Symbol> fakeSymbols;
-  __u64 prevEnd = adjust;
+  __u64 prevEnd = adjust_;
   for (SymbolStorage::iterator symIt = allSymbols_.begin(); symIt != allSymbols_.end(); ++symIt)
   {
     if (symIt->start - prevEnd >= 4)
@@ -258,37 +269,37 @@ void MemoryObject::attachSymbols()
       SymbolStorage::iterator nextSymIt = symIt;
       ++nextSymIt;
       if (nextSymIt == allSymbols_.end())
-        symbol.end = end_ - start_ + adjust;
+        symbol.end = end_ - start_ + adjust_;
       else
         symbol.end = nextSymIt->start;
       // add object base name
       std::stringstream ss;
-      ss << symbol.name << '@' << baseName;
+      ss << symbol.name << '@' << baseName_;
       symbol.name = ss.str();
     }
     prevEnd = symIt->end;
   }
-  if (end_ - start_ + adjust - prevEnd >= 4)
-    fakeSymbols.push_back(Symbol(prevEnd, end_ - start_ + adjust, constructSymbolName(prevEnd)));
+  if (end_ - start_ + adjust_ - prevEnd >= 4)
+    fakeSymbols.push_back(Symbol(prevEnd, end_ - start_ + adjust_, constructSymbolName(prevEnd)));
 
   allSymbols_.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
 
 void MemoryObject::detachSymbols()
 {
-  if (!dwfl)
+  if (!dwfl_)
     return;
-  dwfl_report_end(dwfl, 0, 0);
-  dwfl_end(dwfl);
-  dwMod = 0;
-  dwfl = 0;
+  dwfl_report_end(dwfl_, 0, 0);
+  dwfl_end(dwfl_);
+  dwMod_ = 0;
+  dwfl_ = 0;
   allSymbols_.clear();
 }
 
 const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 {
   // We must have it!
-  SymbolStorage::iterator allSymbolsIt = allSymbols_.upper_bound(Symbol(addr - start_ + adjust));
+  SymbolStorage::iterator allSymbolsIt = allSymbols_.upper_bound(Symbol(addr - start_ + adjust_));
   --allSymbolsIt;
 
   SymbolStorage::iterator symIt = usedSymbols_.insert(*allSymbolsIt).first;
@@ -302,7 +313,7 @@ const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 const Symbol* MemoryObject::findSymbol(__u64 addr) const
 {
   // We must have it!
-  SymbolStorage::iterator symIt = usedSymbols_.upper_bound(Symbol(addr - start_ + adjust));
+  SymbolStorage::iterator symIt = usedSymbols_.upper_bound(Symbol(addr - start_ + adjust_));
   --symIt;
   return &(*symIt);
 }
@@ -310,16 +321,16 @@ const Symbol* MemoryObject::findSymbol(__u64 addr) const
 SourcePosition MemoryObject::getSourcePosition(__u64 addr)
 {
   SourcePosition pos;
-  if (dwfl)
+  if (dwfl_)
   {
-    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - start_ + adjust + bias);
+    Dwfl_Line* line = dwfl_getsrc(dwfl_, addr - start_ + adjust_ + dwBias_);
     if (line)
     {
       int linep;
       const char* srcFile = dwfl_lineinfo(line, 0, &linep, 0, 0, 0);
       if (srcFile)
       {
-        pos.srcFile = &(*sourceFiles.insert(srcFile).first);
+        pos.srcFile = &(*sourceFiles_.insert(srcFile).first);
         pos.srcLine = linep;
       }
     }
@@ -444,7 +455,7 @@ void Profile::process()
       curObj = &getMemoryObjectByAddr(insAddr);
       curObj->attachSymbols();
     }
-    if (!curSymbol || insAddr - curObj->start() + curObj->adjust >= curSymbol->end)
+    if (!curSymbol || curObj->mapTo(insAddr) >= curSymbol->end)
       curSymbol = curObj->resolveSymbol(insAddr);
 
     instr.symbol = curSymbol;
@@ -464,9 +475,7 @@ void Profile::process()
     {
       const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
       const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
-      Cost &fixupedCallCost = const_cast<Cost&>(
-            *fixuped.insert(Cost(callObject.start() + callSymbol->start - callObject.adjust)).first);
-
+      Cost &fixupedCallCost = const_cast<Cost&>(*fixuped.insert(Cost(callObject.unmapFrom(callSymbol->start))).first);
       fixupedCallCost.count += cIt->count;
       fixupedCallCost.sourcePos = callSymbol->startSrcPos;
     }
@@ -524,7 +533,7 @@ void Profile::dump(std::ostream &os) const
       curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
       os << "fl=" << *curFile << '\n';
     }
-    if (!curSymbol || insAddr - curObj->start() + curObj->adjust >= curSymbol->end)
+    if (!curSymbol || curObj->mapTo(insAddr) >= curSymbol->end)
     {
       curSymbol = instr.symbol;
       os << "fn=" << curSymbol->name << '\n';
