@@ -83,19 +83,24 @@ struct Symbol
   }
 };
 
-struct MemoryObject
+class MemoryObject
 {
+public:
+  /** Returns address at which object was placed in program image */
+  __u64 start() const { return start_; }
+private:
+  __u64 start_;
+public:
   MemoryObject(const perf_event& event)
-    : start(event.mmap_event.addr)
+    : start_(event.mmap_event.addr)
     , end(event.mmap_event.addr + event.mmap_event.len)
     , offset(event.mmap_event.pgoff)
     , fileName(event.mmap_event.filename)
   {
     baseName = fileName.substr(fileName.rfind('/') + 1);
   }
-  explicit MemoryObject(__u64 addr) : start(addr) {}
+  explicit MemoryObject(__u64 addr) : start_(addr) {}
 
-  __u64 start;
   __u64 end;
   __u64 offset;
   std::string fileName;
@@ -106,7 +111,7 @@ struct MemoryObject
   std::tr1::unordered_set<std::string> sourceFiles;
   bool operator<(const MemoryObject& other) const
   {
-    return start < other.start;
+    return start_ < other.start_;
   }
   void attachSymbols();
   void loadSymbolsFromElfSection(Elf* elf, unsigned sectionType);
@@ -249,7 +254,7 @@ void MemoryObject::attachSymbols()
       SymbolStorage::iterator nextSymIt = symIt;
       ++nextSymIt;
       if (nextSymIt == allSymbols.end())
-        symbol.end = end - start + adjust;
+        symbol.end = end - start_ + adjust;
       else
         symbol.end = nextSymIt->start;
       // add object base name
@@ -259,8 +264,8 @@ void MemoryObject::attachSymbols()
     }
     prevEnd = symIt->end;
   }
-  if (end - start + adjust - prevEnd >= 4)
-    fakeSymbols.push_back(Symbol(prevEnd, end - start + adjust, constructSymbolName(prevEnd)));
+  if (end - start_ + adjust - prevEnd >= 4)
+    fakeSymbols.push_back(Symbol(prevEnd, end - start_ + adjust, constructSymbolName(prevEnd)));
 
   allSymbols.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
@@ -279,7 +284,7 @@ void MemoryObject::detachSymbols()
 const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 {
   // We must have it!
-  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - start + adjust));
+  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - start_ + adjust));
   --allSymbolsIt;
 
   SymbolStorage::iterator symIt = usedSymbols.insert(*allSymbolsIt).first;
@@ -293,7 +298,7 @@ const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 const Symbol* MemoryObject::findSymbol(__u64 addr) const
 {
   // We must have it!
-  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - start + adjust));
+  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - start_ + adjust));
   --symIt;
   return &(*symIt);
 }
@@ -303,7 +308,7 @@ SourcePosition MemoryObject::getSourcePosition(__u64 addr)
   SourcePosition pos;
   if (dwfl)
   {
-    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - start + adjust + bias);
+    Dwfl_Line* line = dwfl_getsrc(dwfl, addr - start_ + adjust + bias);
     if (line)
     {
       int linep;
@@ -435,7 +440,7 @@ void Profile::process()
       curObj = &getMemoryObjectByAddr(insAddr);
       curObj->attachSymbols();
     }
-    if (!curSymbol || insAddr - curObj->start + curObj->adjust >= curSymbol->end)
+    if (!curSymbol || insAddr - curObj->start() + curObj->adjust >= curSymbol->end)
       curSymbol = curObj->resolveSymbol(insAddr);
 
     instr.symbol = curSymbol;
@@ -456,7 +461,7 @@ void Profile::process()
       const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
       const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
       Cost &fixupedCallCost = const_cast<Cost&>(
-            *fixuped.insert(Cost(callObject.start + callSymbol->start - callObject.adjust)).first);
+            *fixuped.insert(Cost(callObject.start() + callSymbol->start - callObject.adjust)).first);
 
       fixupedCallCost.count += cIt->count;
       fixupedCallCost.sourcePos = callSymbol->startSrcPos;
@@ -472,7 +477,7 @@ bool Profile::isMappedAddress(__u64 addr) const
   if (objIt != memoryMap_.begin())
   {
     --objIt;
-   return addr >= objIt->start && addr < objIt->end;
+    return addr >= objIt->start() && addr < objIt->end;
   }
 
   return false;
@@ -515,7 +520,7 @@ void Profile::dump(std::ostream &os) const
       curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
       os << "fl=" << *curFile << '\n';
     }
-    if (!curSymbol || insAddr - curObj->start + curObj->adjust >= curSymbol->end)
+    if (!curSymbol || insAddr - curObj->start() + curObj->adjust >= curSymbol->end)
     {
       curSymbol = instr.symbol;
       os << "fn=" << curSymbol->name << '\n';
