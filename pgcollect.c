@@ -271,7 +271,7 @@ static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cp
   pe_attr.size = sizeof(struct perf_event_attr);
   pe_attr.config = PERF_COUNT_HW_CPU_CYCLES;
 //  pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
-  pe_attr.sample_freq = 4000;
+  pe_attr.sample_freq = 1000;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
   pe_attr.disabled = forkMode;
   pe_attr.inherit = forkMode;
