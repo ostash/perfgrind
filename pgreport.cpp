@@ -21,27 +21,42 @@
 #define PERF_MAX_STACK_DEPTH 127
 #endif
 
+namespace pe {
+
+/// Data about mmap event
+struct mmap_event
+{
+  __u32 pid;
+  __u32 tid;
+  __u64 address;
+  __u64 length;
+  /// @todo Determine how to handle pgoff
+  __u64 pageOffset;
+  char fileName[PATH_MAX];
+};
+
+/// Data about sample event
+/** We have enabled only PERF_SAMPLE_IP and PERF_SAMPLE_CALLCHAIN in \ref createPerfEvent in \ref pgcollect.c,
+ *  so we define only this small subset of fields. */
+struct sample_event
+{
+  __u64   ip;
+  __u64   callchainSize;
+  __u64   callchain[PERF_MAX_STACK_DEPTH];
+};
+
 struct perf_event
 {
   struct perf_event_header header;
   union {
-    struct {
-      __u32 pid, tid;
-      __u64 addr;
-      __u64 len;
-      /// @todo Determine how to handle pgoff
-      __u64 pgoff;
-      char filename[PATH_MAX];
-    } mmap_event;
-    struct {
-      __u64   ip;          /* if PERF_SAMPLE_IP      */
-      __u64   nr;        /* if PERF_SAMPLE_CALLCHAIN */
-      __u64   ips[PERF_MAX_STACK_DEPTH];   /* if PERF_SAMPLE_CALLCHAIN */
-    } sample_event;
+    mmap_event mmap;
+    sample_event sample;
   };
 };
 
-bool readEvent(std::istream& is, perf_event& event)
+}
+
+bool readEvent(std::istream& is, pe::perf_event& event)
 {
   is.read((char*)&event, sizeof(perf_event_header));
   if (is.eof() || is.fail())
@@ -89,10 +104,10 @@ class MemoryObject
 {
 public:
   /// Constructs memory object performance event
-  MemoryObject(const perf_event& event)
-    : start_(event.mmap_event.addr)
-    , end_(event.mmap_event.addr + event.mmap_event.len)
-    , fileName_(event.mmap_event.filename)
+  MemoryObject(const pe::mmap_event& event)
+    : start_(event.address)
+    , end_(event.address + event.length)
+    , fileName_(event.fileName)
   {
     baseName_ = fileName_.substr(fileName_.rfind('/') + 1);
   }
@@ -375,8 +390,8 @@ class Profile
 {
 public:
   Profile() : badSamplesCount_(0), goodSamplesCount_(0) {}
-  void addMemoryObject(const perf_event& event);
-  void addSample(const perf_event& event);
+  void addMemoryObject(const pe::mmap_event &event);
+  void addSample(const pe::sample_event &event);
 
   void process();
 
@@ -396,31 +411,31 @@ private:
   size_t goodSamplesCount_;
 };
 
-void Profile::addMemoryObject(const perf_event &event)
+void Profile::addMemoryObject(const pe::mmap_event &event)
 {
-  memoryMap_.insert(MemoryMap::value_type(event.mmap_event.addr, MemoryObject(event)));
+  memoryMap_.insert(MemoryMap::value_type(event.address, MemoryObject(event)));
 }
 
-void Profile::addSample(const perf_event &event)
+void Profile::addSample(const pe::sample_event &event)
 {
-  if (!isMappedAddress(event.sample_event.ip) || event.sample_event.nr < 2 ||
-      event.sample_event.ips[0] != PERF_CONTEXT_USER)
+  if (!isMappedAddress(event.ip) || event.callchainSize < 2 ||
+      event.callchain[0] != PERF_CONTEXT_USER)
   {
     badSamplesCount_++;
     return;
   }
 
   {
-    InstrInfo& instr = getOrCreateInstrInfo(event.sample_event.ip);
+    InstrInfo& instr = getOrCreateInstrInfo(event.ip);
     instr.exclusiveCost.count++;
   }
 
   bool skipFrame = false;
-  __u64 callTo = event.sample_event.ip;
+  __u64 callTo = event.ip;
 
-  for (__u64 frameIdx = 2; frameIdx < event.sample_event.nr; ++frameIdx)
+  for (__u64 i = 2; i < event.callchainSize; ++i)
   {
-    __u64 callFrom = event.sample_event.ips[frameIdx];
+    __u64 callFrom = event.callchain[i];
     if (callFrom > PERF_CONTEXT_MAX)
     {
       // Context switch, and we want only user level
@@ -576,15 +591,15 @@ void Profile::dump(std::ostream &os) const
      << '\n';
 }
 
-void processEvent(Profile& profile, const perf_event& event)
+void processEvent(Profile& profile, const pe::perf_event& event)
 {
   switch (event.header.type)
   {
   case PERF_RECORD_MMAP:
-    profile.addMemoryObject(event);
+    profile.addMemoryObject(event.mmap);
     break;
   case PERF_RECORD_SAMPLE:
-    profile.addSample(event);
+    profile.addSample(event.sample);
   }
 }
 
@@ -604,7 +619,7 @@ int main(int argc, char** argv)
   }
 
   Profile profile;
-  perf_event event;
+  pe::perf_event event;
 
   while (readEvent(input, event))
     processEvent(profile, event);
