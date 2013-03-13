@@ -90,21 +90,23 @@ public:
   __u64 start() const { return start_; }
   /// Returns end address at which object was placed in program image
   __u64 end() const { return end_; }
+  /// Returns full path to object file
+  const std::string& fileName() const { return fileName_; }
 private:
   __u64 start_;
   __u64 end_;
+  std::string fileName_;
 public:
   /// @todo Determine how to handle pgoff
   MemoryObject(const perf_event& event)
     : start_(event.mmap_event.addr)
     , end_(event.mmap_event.addr + event.mmap_event.len)
-    , fileName(event.mmap_event.filename)
+    , fileName_(event.mmap_event.filename)
   {
-    baseName = fileName.substr(fileName.rfind('/') + 1);
+    baseName = fileName_.substr(fileName_.rfind('/') + 1);
   }
   explicit MemoryObject(__u64 addr) : start_(addr) {}
 
-  std::string fileName;
   std::string baseName;
   typedef std::set<Symbol> SymbolStorage;
   SymbolStorage allSymbols;
@@ -199,7 +201,7 @@ void MemoryObject::attachSymbols()
   if (dwfl)
   {
     // First try main file
-    dwMod = dwfl_report_offline(dwfl, "", fileName.c_str(), -1);
+    dwMod = dwfl_report_offline(dwfl, "", fileName_.c_str(), -1);
     if (dwMod)
     {
       Elf* elf = dwfl_module_getelf(dwMod, &bias);
@@ -222,7 +224,7 @@ void MemoryObject::attachSymbols()
 
       // It could happen that we have debug info in separate file
       std::stringstream ss;
-      ss << "/usr/lib/debug" << fileName << ".debug";
+      ss << "/usr/lib/debug" << fileName_ << ".debug";
       std::string debugFile = ss.str();
       Dwfl_Module* debugMod = dwfl_report_offline(dwfl, "", debugFile.c_str(), -1);
       if (debugMod)
@@ -513,7 +515,7 @@ void Profile::dump(std::ostream &os) const
       curSymbol = 0;
       curFile = 0;
       curObj = &getMemoryObjectByAddr(insAddr);
-      os << "ob=" << curObj->fileName << '\n';
+      os << "ob=" << curObj->fileName() << '\n';
     }
     if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
         || (curFile != &unknownFile && curFile != instr.exclusiveCost.sourcePos.srcFile))
@@ -534,7 +536,7 @@ void Profile::dump(std::ostream &os) const
          ++cIt)
     {
       const MemoryObject& callObject = getMemoryObjectByAddr(cIt->addr);
-      os << "cob=" << callObject.fileName << '\n';
+      os << "cob=" << callObject.fileName() << '\n';
       const Symbol* callSymbol = callObject.findSymbol(cIt->addr);
       os << "cfi=";
       if (callSymbol->startSrcPos.srcFile)
