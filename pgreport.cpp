@@ -86,14 +86,17 @@ struct Symbol
 class MemoryObject
 {
 public:
-  /** Returns address at which object was placed in program image */
+  /// Returns start address at which object was placed in program image
   __u64 start() const { return start_; }
+  /// Returns end address at which object was placed in program image
+  __u64 end() const { return end_; }
 private:
   __u64 start_;
+  __u64 end_;
 public:
   MemoryObject(const perf_event& event)
     : start_(event.mmap_event.addr)
-    , end(event.mmap_event.addr + event.mmap_event.len)
+    , end_(event.mmap_event.addr + event.mmap_event.len)
     , offset(event.mmap_event.pgoff)
     , fileName(event.mmap_event.filename)
   {
@@ -101,7 +104,6 @@ public:
   }
   explicit MemoryObject(__u64 addr) : start_(addr) {}
 
-  __u64 end;
   __u64 offset;
   std::string fileName;
   std::string baseName;
@@ -254,7 +256,7 @@ void MemoryObject::attachSymbols()
       SymbolStorage::iterator nextSymIt = symIt;
       ++nextSymIt;
       if (nextSymIt == allSymbols.end())
-        symbol.end = end - start_ + adjust;
+        symbol.end = end_ - start_ + adjust;
       else
         symbol.end = nextSymIt->start;
       // add object base name
@@ -264,8 +266,8 @@ void MemoryObject::attachSymbols()
     }
     prevEnd = symIt->end;
   }
-  if (end - start_ + adjust - prevEnd >= 4)
-    fakeSymbols.push_back(Symbol(prevEnd, end - start_ + adjust, constructSymbolName(prevEnd)));
+  if (end_ - start_ + adjust - prevEnd >= 4)
+    fakeSymbols.push_back(Symbol(prevEnd, end_ - start_ + adjust, constructSymbolName(prevEnd)));
 
   allSymbols.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
@@ -432,7 +434,7 @@ void Profile::process()
   {
     InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
     __u64 insAddr = instr.exclusiveCost.addr;
-    if (!curObj || insAddr >= curObj->end)
+    if (!curObj || insAddr >= curObj->end())
     {
       if (curObj)
         curObj->detachSymbols();
@@ -477,7 +479,7 @@ bool Profile::isMappedAddress(__u64 addr) const
   if (objIt != memoryMap_.begin())
   {
     --objIt;
-    return addr >= objIt->start() && addr < objIt->end;
+    return addr >= objIt->start() && addr < objIt->end();
   }
 
   return false;
@@ -507,7 +509,7 @@ void Profile::dump(std::ostream &os) const
   {
     const InstrInfo& instr = *insIt;
     __u64 insAddr = instr.exclusiveCost.addr;
-    if (!curObj || insAddr >= curObj->end)
+    if (!curObj || insAddr >= curObj->end())
     {
       curSymbol = 0;
       curFile = 0;
