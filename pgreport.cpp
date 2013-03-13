@@ -96,6 +96,10 @@ private:
   __u64 start_;
   __u64 end_;
   std::string fileName_;
+
+  typedef std::set<Symbol> SymbolStorage;
+  SymbolStorage allSymbols_;
+  SymbolStorage usedSymbols_;
 public:
   /// @todo Determine how to handle pgoff
   MemoryObject(const perf_event& event)
@@ -108,9 +112,6 @@ public:
   explicit MemoryObject(__u64 addr) : start_(addr) {}
 
   std::string baseName;
-  typedef std::set<Symbol> SymbolStorage;
-  SymbolStorage allSymbols;
-  SymbolStorage usedSymbols;
   std::tr1::unordered_set<std::string> sourceFiles;
   bool operator<(const MemoryObject& other) const
   {
@@ -170,7 +171,7 @@ void MemoryObject::loadSymbolsFromElfSection(Elf *elf, unsigned sectionType)
                     elf_strptr(elf, sectHeader.sh_link, elfSym.st_name));
 
       symbol.binding = ELF32_ST_BIND(elfSym.st_info);
-      std::pair<SymbolStorage::iterator, bool> symIns = allSymbols.insert(symbol);
+      std::pair<SymbolStorage::iterator, bool> symIns = allSymbols_.insert(symbol);
       if (!symIns.second)
       {
         Symbol& oldSym = const_cast<Symbol&>(*symIns.first);
@@ -245,7 +246,7 @@ void MemoryObject::attachSymbols()
   // Create fake symbols to cover gaps
   std::vector<Symbol> fakeSymbols;
   __u64 prevEnd = adjust;
-  for (SymbolStorage::iterator symIt = allSymbols.begin(); symIt != allSymbols.end(); ++symIt)
+  for (SymbolStorage::iterator symIt = allSymbols_.begin(); symIt != allSymbols_.end(); ++symIt)
   {
     if (symIt->start - prevEnd >= 4)
       fakeSymbols.push_back(Symbol(prevEnd, symIt->start, constructSymbolName(prevEnd)));
@@ -256,7 +257,7 @@ void MemoryObject::attachSymbols()
       Symbol& symbol = const_cast<Symbol&>(*symIt);
       SymbolStorage::iterator nextSymIt = symIt;
       ++nextSymIt;
-      if (nextSymIt == allSymbols.end())
+      if (nextSymIt == allSymbols_.end())
         symbol.end = end_ - start_ + adjust;
       else
         symbol.end = nextSymIt->start;
@@ -270,7 +271,7 @@ void MemoryObject::attachSymbols()
   if (end_ - start_ + adjust - prevEnd >= 4)
     fakeSymbols.push_back(Symbol(prevEnd, end_ - start_ + adjust, constructSymbolName(prevEnd)));
 
-  allSymbols.insert(fakeSymbols.begin(), fakeSymbols.end());
+  allSymbols_.insert(fakeSymbols.begin(), fakeSymbols.end());
 }
 
 void MemoryObject::detachSymbols()
@@ -281,17 +282,17 @@ void MemoryObject::detachSymbols()
   dwfl_end(dwfl);
   dwMod = 0;
   dwfl = 0;
-  allSymbols.clear();
+  allSymbols_.clear();
 }
 
 const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 {
   // We must have it!
-  SymbolStorage::iterator allSymbolsIt = allSymbols.upper_bound(Symbol(addr - start_ + adjust));
+  SymbolStorage::iterator allSymbolsIt = allSymbols_.upper_bound(Symbol(addr - start_ + adjust));
   --allSymbolsIt;
 
-  SymbolStorage::iterator symIt = usedSymbols.insert(*allSymbolsIt).first;
-  allSymbols.erase(allSymbolsIt);
+  SymbolStorage::iterator symIt = usedSymbols_.insert(*allSymbolsIt).first;
+  allSymbols_.erase(allSymbolsIt);
 
   const_cast<Symbol&>(*symIt).startSrcPos = getSourcePosition(symIt->start);
 
@@ -301,7 +302,7 @@ const Symbol* MemoryObject::resolveSymbol(__u64 addr)
 const Symbol* MemoryObject::findSymbol(__u64 addr) const
 {
   // We must have it!
-  SymbolStorage::iterator symIt = usedSymbols.upper_bound(Symbol(addr - start_ + adjust));
+  SymbolStorage::iterator symIt = usedSymbols_.upper_bound(Symbol(addr - start_ + adjust));
   --symIt;
   return &(*symIt);
 }
