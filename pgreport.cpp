@@ -389,7 +389,13 @@ Cost& InstrInfo::getOrCreateCallCost(__u64 addr)
 class Profile
 {
 public:
-  Profile() : badSamplesCount_(0), goodSamplesCount_(0) {}
+  enum Mode { Flat = 0, Callgraph = 1 };
+  Profile(Mode mode = Flat)
+    : mode_(mode)
+    , badSamplesCount_(0)
+    , goodSamplesCount_(0)
+  {}
+
   void addMemoryObject(const pe::mmap_event &event);
   void addSample(const pe::sample_event &event);
 
@@ -397,6 +403,8 @@ public:
 
   void dump(std::ostream& os) const;
 private:
+  Mode mode_;
+
   typedef std::map<__u64, MemoryObject> MemoryMap;
   typedef std::set<InstrInfo> InstrInfoStorage;
 
@@ -428,7 +436,11 @@ void Profile::addSample(const pe::sample_event &event)
   {
     InstrInfo& instr = getOrCreateInstrInfo(event.ip);
     instr.exclusiveCost.count++;
+    goodSamplesCount_++;
   }
+
+  if (mode_ == Flat)
+    return;
 
   bool skipFrame = false;
   __u64 callTo = event.ip;
@@ -451,8 +463,6 @@ void Profile::addSample(const pe::sample_event &event)
 
     callTo = callFrom;
   }
-
-  goodSamplesCount_++;
 }
 
 void Profile::process()
@@ -618,7 +628,7 @@ int main(int argc, char** argv)
     exit(EXIT_FAILURE);
   }
 
-  Profile profile;
+  Profile profile(Profile::Callgraph);
   pe::perf_event event;
 
   while (readEvent(input, event))
