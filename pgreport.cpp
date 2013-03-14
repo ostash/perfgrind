@@ -371,15 +371,12 @@ struct Cost
 
 struct InstrInfo
 {
-  explicit InstrInfo(__u64 addr) : exclusiveCost(addr), symbol(0) {}
-  Cost exclusiveCost;
+  InstrInfo() : selfCost(0), symbol(0) {}
+  __u64 selfCost;
+  SourcePosition sourcePos;
   typedef std::set<Cost> CallCostStorage;
   CallCostStorage callCosts;
   const Symbol* symbol;
-  bool operator<(const InstrInfo& other) const
-  {
-    return exclusiveCost < other.exclusiveCost;
-  }
   Cost& getOrCreateCallCost(__u64 addr);
 };
 
@@ -440,7 +437,7 @@ void Profile::addSample(const pe::sample_event &event)
 
   {
     InstrInfo& instr = getOrCreateInstrInfo(event.ip);
-    instr.exclusiveCost.count++;
+    instr.selfCost++;
     goodSamplesCount_++;
   }
 
@@ -497,7 +494,7 @@ void Profile::process()
       curSymbol = &curObj->resolveSymbol(mappedAddress);
 
     instr.symbol = curSymbol;
-    instr.exclusiveCost.sourcePos = curObj->getSourcePosition(mappedAddress);
+    instr.sourcePos = curObj->getSourcePosition(mappedAddress);
   }
   if (curObj)
     curObj->detachSymbols();
@@ -547,7 +544,7 @@ const MemoryObject& Profile::findMemoryObject(__u64 address) const
 InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
 {
   std::pair<InstrInfoStorage::iterator, bool> instrIns =
-      instructions_.insert(InstrInfoStorage::value_type(addr, InstrInfo(addr)));
+      instructions_.insert(InstrInfoStorage::value_type(addr, InstrInfo()));
   return instrIns.first->second;
 }
 
@@ -572,10 +569,10 @@ void Profile::dump(std::ostream &os) const
       curObj = &findMemoryObject(globalAddr);
       os << "ob=" << curObj->fileName() << '\n';
     }
-    if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
-        || (curFile != &unknownFile && curFile != instr.exclusiveCost.sourcePos.srcFile))
+    if (!curFile || (curFile == &unknownFile && instr.sourcePos.srcFile)
+        || (curFile != &unknownFile && curFile != instr.sourcePos.srcFile))
     {
-      curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
+      curFile = instr.sourcePos.srcFile ?: &unknownFile;
       os << "fl=" << *curFile << '\n';
     }
     if (!curSymbol || curObj->mapTo(globalAddr) >= curSymbol->end)
@@ -584,8 +581,8 @@ void Profile::dump(std::ostream &os) const
       os << "fn=" << curSymbol->name << '\n';
     }
 
-    if (instr.exclusiveCost.count != 0)
-      os << instr.exclusiveCost.sourcePos.srcLine << ' ' << instr.exclusiveCost.count << '\n';
+    if (instr.selfCost != 0)
+      os << instr.sourcePos.srcLine << ' ' << instr.selfCost << '\n';
 
     for (InstrInfo::CallCostStorage::const_iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end();
          ++cIt)
@@ -601,7 +598,7 @@ void Profile::dump(std::ostream &os) const
       os << '\n';
       os << "cfn=" << callSymbol.name << '\n';
       os << "calls=1 " << callSymbol.startSrcPos.srcLine <<  '\n';
-      os << instr.exclusiveCost.sourcePos.srcLine << ' ' << cIt->count << '\n';
+      os << instr.sourcePos.srcLine << ' ' << cIt->count << '\n';
     }
   }
 
