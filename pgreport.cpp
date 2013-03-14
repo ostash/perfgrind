@@ -6,6 +6,9 @@
 #include <set>
 #include <vector>
 #include <tr1/unordered_set>
+#include <tr1/unordered_map>
+
+#include <ext/functional>
 
 #include <cxxabi.h>
 
@@ -406,7 +409,8 @@ private:
   Mode mode_;
 
   typedef std::map<__u64, MemoryObject> MemoryMap;
-  typedef std::set<InstrInfo> InstrInfoStorage;
+  typedef std::tr1::unordered_map<__u64, InstrInfo> InstrInfoStorage;
+  typedef std::vector<__u64> InstrAddrStorage;
 
   bool isMappedAddress(__u64 isMappedAddress) const;
   MemoryObject &findMemoryObject(__u64 address);
@@ -415,6 +419,7 @@ private:
 
   MemoryMap memoryMap_;
   InstrInfoStorage instructions_;
+  InstrAddrStorage instrAddrs_;
   size_t badSamplesCount_;
   size_t goodSamplesCount_;
 };
@@ -467,12 +472,18 @@ void Profile::addSample(const pe::sample_event &event)
 
 void Profile::process()
 {
+  instrAddrs_.resize(instructions_.size());
+  std::transform(instructions_.begin(), instructions_.end(), instrAddrs_.begin(),
+                 __gnu_cxx::select1st<InstrInfoStorage::value_type>());
+  std::sort(instrAddrs_.begin(), instrAddrs_.end());
+
   MemoryObject* curObj = 0;
   const Symbol* curSymbol = 0;
-  for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
+  for (size_t i = 0; i < instrAddrs_.size(); i++)
   {
-    InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
-    __u64 globalAddr = instr.exclusiveCost.addr;
+    __u64 globalAddr = instrAddrs_[i];
+    InstrInfo& instr = instructions_.find(globalAddr)->second;
+
     if (!curObj || globalAddr >= curObj->end())
     {
       if (curObj)
@@ -496,7 +507,7 @@ void Profile::process()
   // this will allow group them as well
   for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
   {
-    InstrInfo& instr = const_cast<InstrInfo&>(*insIt);
+    InstrInfo& instr = insIt->second;
     InstrInfo::CallCostStorage fixuped;
     for (InstrInfo::CallCostStorage::iterator cIt = instr.callCosts.begin(); cIt != instr.callCosts.end(); ++cIt)
     {
@@ -535,8 +546,9 @@ const MemoryObject& Profile::findMemoryObject(__u64 address) const
 
 InstrInfo& Profile::getOrCreateInstrInfo(__u64 addr)
 {
-  std::pair<InstrInfoStorage::iterator, bool> instrIns = instructions_.insert(InstrInfo(addr));
-  return const_cast<InstrInfo&>(*instrIns.first);
+  std::pair<InstrInfoStorage::iterator, bool> instrIns =
+      instructions_.insert(InstrInfoStorage::value_type(addr, InstrInfo(addr)));
+  return instrIns.first->second;
 }
 
 void Profile::dump(std::ostream &os) const
@@ -548,15 +560,16 @@ void Profile::dump(std::ostream &os) const
   const Symbol* curSymbol = 0;
   const std::string unknownFile = "???";
   const std::string* curFile = 0;
-  for (InstrInfoStorage::iterator insIt = instructions_.begin(); insIt != instructions_.end(); ++insIt)
+  for (size_t i = 0; i < instrAddrs_.size(); i++)
   {
-    const InstrInfo& instr = *insIt;
-    __u64 insAddr = instr.exclusiveCost.addr;
-    if (!curObj || insAddr >= curObj->end())
+    __u64 globalAddr = instrAddrs_[i];
+    const InstrInfo& instr = instructions_.find(globalAddr)->second;
+
+    if (!curObj || globalAddr >= curObj->end())
     {
       curSymbol = 0;
       curFile = 0;
-      curObj = &findMemoryObject(insAddr);
+      curObj = &findMemoryObject(globalAddr);
       os << "ob=" << curObj->fileName() << '\n';
     }
     if (!curFile || (curFile == &unknownFile && instr.exclusiveCost.sourcePos.srcFile)
@@ -565,7 +578,7 @@ void Profile::dump(std::ostream &os) const
       curFile = instr.exclusiveCost.sourcePos.srcFile ?: &unknownFile;
       os << "fl=" << *curFile << '\n';
     }
-    if (!curSymbol || curObj->mapTo(insAddr) >= curSymbol->end)
+    if (!curSymbol || curObj->mapTo(globalAddr) >= curSymbol->end)
     {
       curSymbol = instr.symbol;
       os << "fn=" << curSymbol->name << '\n';
