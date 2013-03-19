@@ -27,6 +27,12 @@ public:
   void addCount(Count count) { count_ += count; }
   void appendBranch(Address address, Count count = 1);
 
+  void swap(EntryData& other)
+  {
+    std::swap(count_, other.count_);
+    branches_.swap(other.branches_);
+  }
+
 private:
   Count count_;
   BranchStorage branches_;
@@ -61,6 +67,16 @@ typedef std::map<Address, MemoryObjectData> MemoryObjectStorage;
 #endif
 typedef MemoryObjectStorage::value_type MemoryObject;
 
+class SymbolData
+{
+private:
+  Size size_;
+  std::string name_;
+};
+
+typedef std::tr1::unordered_map<Address, SymbolData> SymbolStorage;
+typedef SymbolStorage::value_type Symbol;
+
 class ProfilePrivate;
 
 class Profile
@@ -74,7 +90,11 @@ public:
   size_t goodSamplesCount() const;
   size_t badSamplesCount() const;
 
+  void fixupBranches();
+
   const MemoryObjectStorage& memoryObjects() const;
+  const SymbolStorage& symbols() const;
+  SymbolStorage& symbols();
   const EntryStorage& entries() const;
 private:
   Profile(const Profile&);

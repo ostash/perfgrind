@@ -56,7 +56,6 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
-#if ENABLE_MEMORY_INDEX
 class Index : public std::vector<Address>
 {
 public:
@@ -74,7 +73,6 @@ void Index::update()
   std::inplace_merge(begin(), begin() + lastValid_, end());
   lastValid_ = size();
 }
-#endif
 
 struct ProfilePrivate
 {
@@ -91,10 +89,14 @@ struct ProfilePrivate
 
   bool isValidAdress(Address address) const;
 
+  const Symbol& findSymbol(Address Address) const;
+
   MemoryObjectStorage memoryObjects;
 #if ENABLE_MEMORY_INDEX
   mutable Index memoryObjectIndex;
 #endif
+  SymbolStorage symbols;
+  Index symbolIndex;
   EntryStorage entries;
 
   size_t goodSamplesCount;
@@ -188,6 +190,13 @@ bool ProfilePrivate::isValidAdress(Address address) const
 #endif
 }
 
+const Symbol& ProfilePrivate::findSymbol(Address address) const
+{
+  Index::const_iterator symbolIdxIt = std::upper_bound(symbolIndex.begin(), symbolIndex.end(), address);
+  --symbolIdxIt;
+  return *symbols.find(*symbolIdxIt);
+}
+
 Profile::Profile() : d(new ProfilePrivate)
 {}
 
@@ -225,9 +234,41 @@ size_t Profile::badSamplesCount() const
   return d->badSamplesCount;
 }
 
+void Profile::fixupBranches()
+{
+  // Fixup branches
+  // Call "to" address should point to first address of called function,
+  // this will allow group them as well
+  for (EntryStorage::iterator entryIt = d->entries.begin(); entryIt != d->entries.end(); ++entryIt)
+  {
+    EntryData& entryData = entryIt->second;
+    if (entryData.branches().size() == 0)
+      continue;
+
+    EntryData fixedEntry(entryData.count());
+    for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
+         ++branchIt)
+    {
+      const Symbol& symbol = d->findSymbol(branchIt->first);
+      fixedEntry.appendBranch(symbol.first, branchIt->second);
+    }
+    entryData.swap(fixedEntry);
+  }
+}
+
 const MemoryObjectStorage& Profile::memoryObjects() const
 {
   return d->memoryObjects;
+}
+
+const SymbolStorage& Profile::symbols() const
+{
+  return d->symbols;
+}
+
+SymbolStorage& Profile::symbols()
+{
+  return d->symbols;
 }
 
 const EntryStorage& Profile::entries() const
