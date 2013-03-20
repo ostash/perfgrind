@@ -10,6 +10,9 @@ perfgrind.includes
 # Build artifacts
 pgcollect
 pgreport
+pginfo
+pgconvert
+libpg.so
 
 # Doxygen documentation
 html
