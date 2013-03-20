@@ -5,6 +5,10 @@
 #include <climits>
 #include <linux/perf_event.h>
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 void EntryData::appendBranch(Address address, Count count)
 {
   BranchStorage::iterator branchIt = branches_.find(address);
@@ -92,9 +96,6 @@ struct ProfilePrivate
   const Symbol& findSymbol(Address Address) const;
 
   MemoryObjectStorage memoryObjects;
-#if ENABLE_MEMORY_INDEX
-  mutable Index memoryObjectIndex;
-#endif
   SymbolStorage symbols;
   Index symbolIndex;
   EntryStorage entries;
@@ -105,9 +106,22 @@ struct ProfilePrivate
 
 void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
 {
-  memoryObjects.insert(MemoryObject(event.address, MemoryObjectData(event.length, event.fileName)));
-#if ENABLE_MEMORY_INDEX
-  memoryObjectIndex.push_back(event.address);
+#ifndef NDEBUG
+  std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
+#endif
+  memoryObjects.insert(MemoryObject(Range(event.address, event.address + event.length),
+                                    MemoryObjectData(event.fileName)));
+#ifndef NDEBUG
+  if (!insRes.second)
+  {
+    std::cerr << "Memory object was not inserted! " << event.address << " " << event.length << " "
+              << event.fileName << '\n';
+    std::cerr << "Already have another object: " << (insRes.first->first.start) << ' '
+              << (insRes.first->first.end) << ' ' << insRes.first->second.fileName() << '\n';
+    for (MemoryObjectStorage::const_iterator it = memoryObjects.begin(); it != memoryObjects.end(); ++it)
+      std::cerr << it->first.start << ' ' << it->first.end << ' ' << it->second.fileName() << '\n';
+    std::cerr << std::endl;
+  }
 #endif
 }
 
@@ -166,28 +180,7 @@ void ProfilePrivate::appendBranch(Address from, Address to, Count count)
 
 bool ProfilePrivate::isValidAdress(Address address) const
 {
-#if ENABLE_MEMORY_INDEX
-  memoryObjectIndex.update();
-  Index::const_iterator idxIt = std::upper_bound(memoryObjectIndex.begin(), memoryObjectIndex.end(), address);
-
-  if (idxIt != memoryObjectIndex.begin())
-  {
-    --idxIt;
-    const MemoryObjectData& object = memoryObjects.find(*idxIt)->second;
-    return address < *idxIt + object.size();
-  }
-  return false;
-#else
-  MemoryObjectStorage::const_iterator objIt = memoryObjects.upper_bound(address);
-
-  if (objIt != memoryObjects.begin())
-  {
-    --objIt;
-    return address >= objIt->first && address < objIt->first + objIt->second.size();
-  }
-
-  return false;
-#endif
+  return memoryObjects.find(Range(address)) != memoryObjects.end();
 }
 
 const Symbol& ProfilePrivate::findSymbol(Address address) const

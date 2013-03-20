@@ -9,6 +9,24 @@
 typedef uint64_t Address;
 typedef uint64_t Count;
 typedef uint64_t Size;
+struct Range
+{
+  Range(uint64_t _start, uint64_t _end)
+    : start(_start)
+    , end(_end)
+  {}
+  explicit Range(uint64_t value)
+    : start(value)
+    , end(value + 1)
+  {}
+  bool operator<(const Range& rhs) const
+  {
+    return end <= rhs.start;
+  }
+
+  uint64_t start;
+  uint64_t end;
+};
 
 typedef std::tr1::unordered_map<Address, Count> BranchStorage;
 typedef BranchStorage::value_type Branch;
@@ -45,26 +63,18 @@ class MemoryObjectData
 {
 public:
   /// Constructs memory object data
-  MemoryObjectData(Size size, const char* fileName)
-    : size_(size)
-    , fileName_(fileName)
+  explicit MemoryObjectData(const char* fileName)
+    : fileName_(fileName)
   {}
 
-  /// Returns size of object in program image
-  uint64_t size() const { return size_; }
   /// Returns full path to object file
   const std::string& fileName() const { return fileName_; }
 
 private:
-  const Size size_;
   const std::string fileName_;
 };
 
-#ifdef ENABLE_MEMORY_INDEX
-typedef std::tr1::unordered_map<Address, MemoryObjectData> MemoryObjectStorage;
-#else
-typedef std::map<Address, MemoryObjectData> MemoryObjectStorage;
-#endif
+typedef std::map<Range, MemoryObjectData> MemoryObjectStorage;
 typedef MemoryObjectStorage::value_type MemoryObject;
 
 class SymbolData
