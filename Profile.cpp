@@ -75,8 +75,6 @@ struct ProfilePrivate
 
   bool isValidAdress(Address address) const;
 
-  const Symbol& findSymbol(Address Address) const;
-
   MemoryObjectStorage memoryObjects;
   SymbolStorage symbols;
   EntryStorage entries;
@@ -164,11 +162,6 @@ bool ProfilePrivate::isValidAdress(Address address) const
   return memoryObjects.find(Range(address)) != memoryObjects.end();
 }
 
-const Symbol& ProfilePrivate::findSymbol(Address address) const
-{
-  return *symbols.find(Range(address));
-}
-
 Profile::Profile() : d(new ProfilePrivate)
 {}
 
@@ -221,8 +214,11 @@ void Profile::fixupBranches()
     for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
          ++branchIt)
     {
-      const Symbol& symbol = d->findSymbol(branchIt->first);
-      fixedEntry.appendBranch(symbol.first.start, branchIt->second);
+      SymbolStorage::const_iterator symIt = d->symbols.find(Range(branchIt->first));
+      if (symIt != symbols().end())
+        fixedEntry.appendBranch(symIt->first.start, branchIt->second);
+      else
+        fixedEntry.appendBranch(branchIt->first, branchIt->second);
     }
     entryData.swap(fixedEntry);
   }
