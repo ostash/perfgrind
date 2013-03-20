@@ -3,7 +3,6 @@
 
 #include <istream>
 #include <map>
-#include <tr1/unordered_map>
 #include <stdint.h>
 
 typedef uint64_t Address;
@@ -28,7 +27,7 @@ struct Range
   uint64_t end;
 };
 
-typedef std::tr1::unordered_map<Address, Count> BranchStorage;
+typedef std::map<Address, Count> BranchStorage;
 typedef BranchStorage::value_type Branch;
 
 class EntryData
@@ -36,7 +35,6 @@ class EntryData
 public:
   explicit EntryData(Count count)
     : count_(count)
-    , branches_(0)
   {}
 
   Count count() const { return count_; }
@@ -56,7 +54,7 @@ private:
   BranchStorage branches_;
 };
 
-typedef std::tr1::unordered_map<Address, EntryData> EntryStorage;
+typedef std::map<Address, EntryData> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
 class MemoryObjectData
