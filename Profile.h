@@ -77,6 +77,10 @@ typedef MemoryObjectStorage::value_type MemoryObject;
 
 class SymbolData
 {
+public:
+  SymbolData(const std::string& name)
+    : name_(name)
+  {}
 private:
   std::string name_;
 };
