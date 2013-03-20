@@ -60,24 +60,6 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
-class Index : public std::vector<Address>
-{
-public:
-  Index() : lastValid_(0) {}
-  void update();
-private:
-  size_t lastValid_;
-};
-
-void Index::update()
-{
-  if (lastValid_ == size())
-    return;
-  std::sort(begin() + lastValid_, end());
-  std::inplace_merge(begin(), begin() + lastValid_, end());
-  lastValid_ = size();
-}
-
 struct ProfilePrivate
 {
   ProfilePrivate()
@@ -97,7 +79,6 @@ struct ProfilePrivate
 
   MemoryObjectStorage memoryObjects;
   SymbolStorage symbols;
-  Index symbolIndex;
   EntryStorage entries;
 
   size_t goodSamplesCount;
@@ -185,9 +166,7 @@ bool ProfilePrivate::isValidAdress(Address address) const
 
 const Symbol& ProfilePrivate::findSymbol(Address address) const
 {
-  Index::const_iterator symbolIdxIt = std::upper_bound(symbolIndex.begin(), symbolIndex.end(), address);
-  --symbolIdxIt;
-  return *symbols.find(*symbolIdxIt);
+  return *symbols.find(Range(address));
 }
 
 Profile::Profile() : d(new ProfilePrivate)
@@ -243,7 +222,7 @@ void Profile::fixupBranches()
          ++branchIt)
     {
       const Symbol& symbol = d->findSymbol(branchIt->first);
-      fixedEntry.appendBranch(symbol.first, branchIt->second);
+      fixedEntry.appendBranch(symbol.first.start, branchIt->second);
     }
     entryData.swap(fixedEntry);
   }

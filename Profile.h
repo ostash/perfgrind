@@ -80,11 +80,10 @@ typedef MemoryObjectStorage::value_type MemoryObject;
 class SymbolData
 {
 private:
-  Size size_;
   std::string name_;
 };
 
-typedef std::tr1::unordered_map<Address, SymbolData> SymbolStorage;
+typedef std::map<Range, SymbolData> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
 
 class ProfilePrivate;
