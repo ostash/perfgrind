@@ -9,6 +9,10 @@
 
 #include <elfutils/libdwfl.h>
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 enum Section {
   SymTab = 0,
   DynSym,
@@ -257,6 +261,15 @@ void AddressResolver::resolve(EntryStorage::const_iterator first, EntryStorage::
   while (first != last)
   {
     ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(first->first - adjust));
+    if (arSymIt == d->symbols.end())
+    {
+#ifndef NDEBUG
+    std::cerr << "Can't resolve symbol for address " << std::hex << first->first - adjust
+              << ", load base: " << loadBase << std::dec << '\n';
+#endif
+    ++first;
+    continue;
+    }
 
     Symbol symbol(Range(arSymIt->first.start + adjust, arSymIt->first.end + adjust),
                   SymbolData(arSymIt->second.name.empty() ? constructSymbolName(arSymIt->first.start) :
