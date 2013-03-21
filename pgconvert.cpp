@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <numeric>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -74,7 +75,8 @@ void parseArguments(Params& params, int argc, char* argv[])
       else if (strcmp(argp, "symbol") == 0)
         params.detail = Params::Symbol;
       else if (strcmp(argp, "source") == 0)
-        params.detail = Params::Source;
+        // Source is not supported yet
+        params.detail = Params::Symbol;
       else
       {
         std::cerr << "Invalid details level '" << argp <<"'\n";
@@ -87,6 +89,34 @@ void parseArguments(Params& params, int argc, char* argv[])
   {
     std::cerr << "Not input file given\n";
     exit(EXIT_FAILURE);
+  }
+}
+
+struct CountSum
+{
+  Count operator()(Count first, Entry second) const
+  {
+    return first + second.second.count();
+  }
+};
+
+void dump(std::ostream& os, const Profile& profile, const Params& params)
+{
+  // m=flat, d=object, !i
+  os << "positions: line\n";
+  os << "events: Cycles\n\n";
+
+  for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
+       objIt != profile.memoryObjects().end(); ++objIt)
+  {
+    EntryStorage::const_iterator lowerIt = profile.entries().lower_bound(objIt->first.start);
+    EntryStorage::const_iterator upperIt = profile.entries().upper_bound(objIt->first.end);
+    if (lowerIt != upperIt)
+    {
+      os << "ob=" << objIt->second.fileName() << '\n';
+      Count total = std::accumulate(lowerIt, upperIt, 0, CountSum());
+      os << "0 " << total << "\n\n";
+    }
   }
 }
 
@@ -120,6 +150,8 @@ int main(int argc, char** argv)
 
   if (params.mode == Profile::CallGraph)
     profile.fixupBranches();
+
+  dump(std::cout, profile, params);
 
   return 0;
 }
