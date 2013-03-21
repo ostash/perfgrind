@@ -68,8 +68,11 @@ public:
   /// Returns full path to object file
   const std::string& fileName() const { return fileName_; }
 
+  void setBaseAddress(Address value) { baseAddress_ = value; }
+  Address baseAddress() const { return baseAddress_; }
 private:
   const std::string fileName_;
+  Address baseAddress_;
 };
 
 typedef std::map<Range, MemoryObjectData> MemoryObjectStorage;
@@ -104,6 +107,7 @@ public:
   void fixupBranches();
 
   const MemoryObjectStorage& memoryObjects() const;
+  MemoryObjectStorage& memoryObjects();
   const SymbolStorage& symbols() const;
   SymbolStorage& symbols();
   const EntryStorage& entries() const;

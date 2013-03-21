@@ -247,6 +247,11 @@ AddressResolver::~AddressResolver()
 //  dwfl_end(dwfl_);
 }
 
+Address AddressResolver::baseAddress() const
+{
+  return d->baseAddress;
+}
+
 static std::string constructSymbolName(uint64_t address)
 {
   std::stringstream ss;

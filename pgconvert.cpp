@@ -121,7 +121,8 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       if (params.dumpInstructions)
       {
         for (; lowerIt != upperIt; ++lowerIt)
-            os << "0x" << std::hex << lowerIt->first << " 0 " << std::dec << lowerIt->second.count() << '\n';
+          os << "0x" << std::hex << lowerIt->first - objIt->first.start + objIt->second.baseAddress()
+             << " 0 " << std::dec << lowerIt->second.count() << '\n';
       }
       else
       {
@@ -149,7 +150,7 @@ int main(int argc, char** argv)
   profile.load(input, params.mode);
   input.close();
 
-  for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
+  for (MemoryObjectStorage::iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
   {
     EntryStorage::const_iterator lowerIt = profile.entries().lower_bound(objIt->first.start);
@@ -158,6 +159,7 @@ int main(int argc, char** argv)
     {
       AddressResolver r(objIt->second.fileName().c_str(), objIt->first.end - objIt->first.start);
       r.resolve(lowerIt, upperIt, objIt->first.start, profile.symbols());
+      objIt->second.setBaseAddress(r.baseAddress());
     }
   }
 

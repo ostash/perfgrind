@@ -233,6 +233,11 @@ const MemoryObjectStorage& Profile::memoryObjects() const
   return d->memoryObjects;
 }
 
+MemoryObjectStorage& Profile::memoryObjects()
+{
+  return d->memoryObjects;
+}
+
 const SymbolStorage& Profile::symbols() const
 {
   return d->symbols;
