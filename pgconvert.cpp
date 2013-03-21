@@ -102,8 +102,12 @@ struct CountSum
 
 void dump(std::ostream& os, const Profile& profile, const Params& params)
 {
-  // m=flat, d=object, !i
-  os << "positions: line\n";
+  // m=flat, d=object
+  os << "positions:";
+  if (params.dumpInstructions)
+    os << " instr";
+  os << " line\n";
+
   os << "events: Cycles\n\n";
 
   for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
@@ -114,8 +118,17 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
     if (lowerIt != upperIt)
     {
       os << "ob=" << objIt->second.fileName() << '\n';
-      Count total = std::accumulate(lowerIt, upperIt, 0, CountSum());
-      os << "0 " << total << "\n\n";
+      if (params.dumpInstructions)
+      {
+        for (; lowerIt != upperIt; ++lowerIt)
+            os << "0x" << std::hex << lowerIt->first << " 0 " << std::dec << lowerIt->second.count() << '\n';
+      }
+      else
+      {
+        Count total = std::accumulate(lowerIt, upperIt, 0, CountSum());
+        os << "0 " << total << '\n';
+      }
+      os << '\n';
     }
   }
 }
