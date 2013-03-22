@@ -5,6 +5,8 @@
 #include <sstream>
 #include <cstring>
 
+#include <cxxabi.h>
+
 #include <fcntl.h>
 
 #include <elfutils/libdwfl.h>
@@ -277,9 +279,18 @@ void AddressResolver::resolve(EntryStorage::const_iterator first, EntryStorage::
     continue;
     }
 
-    Symbol symbol(Range(arSymIt->first.start + adjust, arSymIt->first.end + adjust),
-                  SymbolData(arSymIt->second.name.empty() ? constructSymbolName(arSymIt->first.start) :
-                                                            arSymIt->second.name));
+    std::string symbolName = arSymIt->second.name;
+    if (symbolName.empty())
+      symbolName = constructSymbolName(arSymIt->first.start) ;
+    else
+    {
+      char* demangledName = __cxxabiv1::__cxa_demangle(symbolName.c_str(), 0, 0, 0);
+      if (demangledName)
+        symbolName = demangledName;
+      free(demangledName);
+    }
+
+    Symbol symbol(Range(arSymIt->first.start + adjust, arSymIt->first.end + adjust), SymbolData(symbolName));
     symbols.insert(symbol);
 
     do { ++first; }
