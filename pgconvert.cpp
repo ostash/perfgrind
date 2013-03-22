@@ -80,6 +80,10 @@ void parseArguments(Params& params, int argc, char* argv[])
     }
   }
 
+  // It is not possible to use callgraphs with objects only
+  if (params.details == AddressResolver::Objects)
+    params.mode = Profile::Flat;
+
   if (!params.inputFile)
   {
     std::cerr << "Not input file given\n";
