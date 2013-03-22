@@ -87,17 +87,20 @@ void parseArguments(Params& params, int argc, char* argv[])
   }
 }
 
-struct CountSum
+struct EntryPlus
 {
-  Count operator()(Count first, Entry second) const
+  EntryData& operator()(EntryData& first, const Entry& second) const
   {
-    return first + second.second.count();
+    first.addCount(second.second.count());
+    for (BranchStorage::const_iterator branchIt = second.second.branches().begin();
+         branchIt != second.second.branches().end(); ++branchIt)
+      first.appendBranch(branchIt->first, branchIt->second);
+    return first;
   }
 };
 
 void dump(std::ostream& os, const Profile& profile, const Params& params)
 {
-  // m=flat, d=object
   os << "positions:";
   if (params.dumpInstructions)
     os << " instr";
@@ -130,13 +133,24 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       if (params.dumpInstructions)
       {
         for (; entryFirst != entryLast; ++entryFirst)
-          os << "0x" << std::hex << entryFirst->first - object.first.start + object.second.baseAddress()
-             << " 0 " << std::dec << entryFirst->second.count() << '\n';
+          if (entryFirst->second.count())
+            os << "0x" << std::hex << entryFirst->first - object.first.start + object.second.baseAddress()
+               << " 0 " << std::dec << entryFirst->second.count() << '\n';
       }
       else
       {
-        Count total = std::accumulate(entryFirst, entryLast, 0, CountSum());
-        os << "0 " << total << '\n';
+        EntryData total = std::accumulate(entryFirst, entryLast, EntryData(0), EntryPlus());
+        if (total.count())
+          os << "0 " << total.count() << '\n';
+        for (BranchStorage::const_iterator branchIt = total.branches().begin(); branchIt != total.branches().end();
+             ++branchIt)
+        {
+          const MemoryObject& callObject = *profile.memoryObjects().find(Range(branchIt->first));
+          os << "cob=" << callObject.second.fileName() << '\n';
+          const Symbol& callSymbol = *symbols.find(Range(branchIt->first));
+          os << "cfn=" << callSymbol.second.name() << '\n';
+          os << "calls=1 0\n0 " << branchIt->second << '\n';
+        }
         entryFirst = entryLast;
       }
 
