@@ -11,20 +11,14 @@
 
 struct Params
 {
-  enum Detail
-  {
-    Object,
-    Symbol,
-    Source
-  };
   Params()
     : mode(Profile::CallGraph)
-    , detail(Symbol)
+    , details(AddressResolver::Symbols)
     , dumpInstructions(false)
     , inputFile(0)
   {}
   Profile::Mode mode;
-  Detail detail;
+  AddressResolver::DetailLevel details;
   bool dumpInstructions;
   const char* inputFile;
 };
@@ -71,12 +65,12 @@ void parseArguments(Params& params, int argc, char* argv[])
       // detail
       nextArgType = 0;
       if (strcmp(argp, "object") == 0)
-        params.detail = Params::Object;
+        params.details = AddressResolver::Objects;
       else if (strcmp(argp, "symbol") == 0)
-        params.detail = Params::Symbol;
+        params.details = AddressResolver::Symbols;
       else if (strcmp(argp, "source") == 0)
         // Source is not supported yet
-        params.detail = Params::Symbol;
+        params.details = AddressResolver::Symbols;
       else
       {
         std::cerr << "Invalid details level '" << argp <<"'\n";
@@ -157,7 +151,7 @@ int main(int argc, char** argv)
     EntryStorage::const_iterator upperIt = profile.entries().upper_bound(objIt->first.end);
     if (lowerIt != upperIt)
     {
-      AddressResolver r(objIt->second.fileName().c_str(), objIt->first.end - objIt->first.start);
+      AddressResolver r(params.details, objIt->second.fileName().c_str(), objIt->first.end - objIt->first.start);
       r.resolve(lowerIt, upperIt, objIt->first.start, profile.symbols());
       objIt->second.setBaseAddress(r.baseAddress());
     }

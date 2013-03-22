@@ -190,7 +190,7 @@ struct AddressResolverPrivate
 };
 
 
-AddressResolver::AddressResolver(const char *fileName, uint64_t objectSize)
+AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint64_t objectSize)
   : d(new AddressResolverPrivate)
 
 {

@@ -9,7 +9,13 @@ class AddressResolverPrivate;
 class AddressResolver
 {
 public:
-  AddressResolver(const char* fileName, uint64_t objectSize);
+  enum DetailLevel
+  {
+    Objects,
+    Symbols,
+    Sources
+  };
+  AddressResolver(DetailLevel details, const char* fileName, uint64_t objectSize);
   ~AddressResolver();
 
   Address baseAddress() const;
