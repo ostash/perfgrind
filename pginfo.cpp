@@ -38,10 +38,11 @@ int main(int argc, char** argv)
 
   std::cout << "memory objects: " << profile.memoryObjects().size()
      << "\nentries: " << profile.entries().size()
-     << "\n\ngood sample events: " << profile.goodSamplesCount()
+     << "\n\nmmap events: " << profile.mmapEventCount()
+     << "\ngood sample events: " << profile.goodSamplesCount()
      << "\nbad sample events: " << profile.badSamplesCount()
      << "\ntotal sample events: " << profile.goodSamplesCount() + profile.badSamplesCount()
-     << "\ntotal events: " << profile.goodSamplesCount() + profile.badSamplesCount() + profile.memoryObjects().size()
+     << "\ntotal events: " << profile.goodSamplesCount() + profile.badSamplesCount() + profile.mmapEventCount()
      << '\n';
 
   return 0;

@@ -67,7 +67,8 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 struct ProfilePrivate
 {
   ProfilePrivate()
-    : goodSamplesCount(0)
+    : mmapEventCount(0)
+    , goodSamplesCount(0)
     , badSamplesCount(0)
   {}
 
@@ -83,6 +84,7 @@ struct ProfilePrivate
   SymbolStorage symbols;
   EntryStorage entries;
 
+  size_t mmapEventCount;
   size_t goodSamplesCount;
   size_t badSamplesCount;
 };
@@ -106,6 +108,7 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
     std::cerr << std::endl;
   }
 #endif
+  mmapEventCount++;
 }
 
 void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::Mode mode)
@@ -191,6 +194,30 @@ void Profile::load(std::istream &is, Mode mode)
       d->processSampleEvent(event.sample, mode);
     }
   }
+
+  // Drop memory objects that don't have any entries
+  const EntryStorage& cEntries =  d->entries;
+  EntryStorage::const_iterator firstInObject = cEntries.begin();
+  MemoryObjectStorage::iterator objIt = d->memoryObjects.begin();
+  while (objIt != d->memoryObjects.end())
+  {
+    firstInObject = std::lower_bound(firstInObject, cEntries.end(), objIt->first.start);
+    EntryStorage::const_iterator lastInObject = std::upper_bound(firstInObject, cEntries.end(), objIt->first.end);
+    if (firstInObject == lastInObject)
+    {
+      // With C++11 we can just do:
+      // objIt = d->memoryObjects.erase(objIt);
+      d->memoryObjects.erase(objIt++);
+    }
+    else
+      ++objIt;
+    firstInObject = lastInObject;
+  }
+}
+
+size_t Profile::mmapEventCount() const
+{
+  return d->mmapEventCount;
 }
 
 size_t Profile::goodSamplesCount() const

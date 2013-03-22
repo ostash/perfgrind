@@ -57,6 +57,17 @@ private:
 typedef std::map<Address, EntryData> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
+
+inline bool operator<(const Entry& entry, Address value)
+{
+  return entry.first < value;
+}
+
+inline bool operator<(Address value, const Entry& entry)
+{
+  return value < entry.first;
+}
+
 class MemoryObjectData
 {
 public:
@@ -101,6 +112,7 @@ public:
   ~Profile();
 
   void load(std::istream& is, Mode mode = CallGraph);
+  size_t mmapEventCount() const;
   size_t goodSamplesCount() const;
   size_t badSamplesCount() const;
 
