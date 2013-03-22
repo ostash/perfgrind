@@ -177,7 +177,7 @@ struct AddressResolverPrivate
   const char* getDebugLink(Elf_Scn* section);
   void setOriginalBaseAddress(Elf* elf, Elf_Scn* section);
 
-  void constructFakeSymbols(uint64_t objectSize, const char* baseName);
+  void constructFakeSymbols(AddressResolver::DetailLevel details, uint64_t objectSize, const char* baseName);
 
   uint64_t baseAddress;
   uint64_t origBaseAddress;
@@ -232,7 +232,7 @@ AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint
 
   elfh.close();
 
-  d->constructFakeSymbols(objectSize, basename(fileName));
+  d->constructFakeSymbols(details, objectSize, basename(fileName));
 
   // Setup dwfl for sources positions fetching
   //  dwfl_ = dwfl_begin(&callbacks);
@@ -391,7 +391,8 @@ void AddressResolverPrivate::setOriginalBaseAddress(Elf *elf, Elf_Scn* section)
       }
 }
 
-void AddressResolverPrivate::constructFakeSymbols(uint64_t objectSize, const char* baseName)
+void AddressResolverPrivate::constructFakeSymbols(AddressResolver::DetailLevel details, uint64_t objectSize,
+                                                  const char* baseName)
 {
   // Create fake symbols to cover gaps
   ARSymbolStorage newSymbols;
@@ -427,7 +428,12 @@ void AddressResolverPrivate::constructFakeSymbols(uint64_t objectSize, const cha
     }
   }
   if (baseAddress + objectSize - prevEnd >= 4)
-    newSymbols.insert(ARSymbol(Range(prevEnd, baseAddress + objectSize), ARSymbolData(baseAddress + objectSize - prevEnd)));
+  {
+    ARSymbolData newSymbolData(baseAddress + objectSize - prevEnd);
+    if (details == AddressResolver::Objects)
+      (newSymbolData.name = "whole").append(1, '@').append(baseName);
+    newSymbols.insert(ARSymbol(Range(prevEnd, baseAddress + objectSize), newSymbolData));
+  }
 
   symbols.swap(newSymbols);
 }
