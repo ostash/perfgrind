@@ -198,18 +198,19 @@ AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint
   ElfHolder elfh(fileName);
   d->origBaseAddress = d->baseAddress = elfh.getBaseAddress();
 
-  bool symTabLoaded = false;
+  // Don't load symbols if not requested
+  bool symTabLoaded = (details == Objects);
   // Try to load .symtab from main file
-  if (elfh.getSection(SymTab))
+  if (!symTabLoaded && elfh.getSection(SymTab))
   {
     d->loadSymbolsFromSection(elfh.get(), elfh.getSection(SymTab));
     symTabLoaded = true;
   }
-  else if (elfh.getSection(DynSym))
+  else if (!symTabLoaded && elfh.getSection(DynSym))
     // Try to load .dynsym from main file
     d->loadSymbolsFromSection(elfh.get(), elfh.getSection(DynSym));
 
-  if (elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
+  if (details != Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
     d->setOriginalBaseAddress(elfh.get(), elfh.getSection(PrelinkUndo));
 
   if (elfh.getSection(DebugLink))
