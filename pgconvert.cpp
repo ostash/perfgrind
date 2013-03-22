@@ -1,6 +1,7 @@
 #include "Profile.h"
 #include "AddressResolver.h"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <numeric>
@@ -104,27 +105,44 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
 
   os << "events: Cycles\n\n";
 
+  const SymbolStorage& symbols = profile.symbols();
+  SymbolStorage::const_iterator symFirst = symbols.begin();
+
+  const EntryStorage& entries =  profile.entries();
+  EntryStorage::const_iterator entryFirst = entries.begin();
+
   for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
   {
-    EntryStorage::const_iterator lowerIt = profile.entries().lower_bound(objIt->first.start);
-    EntryStorage::const_iterator upperIt = profile.entries().upper_bound(objIt->first.end);
-    if (lowerIt != upperIt)
+    const MemoryObject& object = *objIt;
+    os << "ob=" << object.second.fileName() << '\n';
+
+    symFirst = std::lower_bound(symFirst, symbols.end(), object.first.start);
+    SymbolStorage::const_iterator symLast = std::upper_bound(symFirst, symbols.end(), object.first.end);
+    while (symFirst != symLast)
     {
-      os << "ob=" << objIt->second.fileName() << '\n';
+      const Symbol& symbol = *symFirst;
+      os << "fn=" << symbol.second.name() << '\n';
+
+      entryFirst = std::lower_bound(entryFirst, entries.end(), symbol.first.start);
+      EntryStorage::const_iterator entryLast = std::upper_bound(entryFirst, entries.end(), symbol.first.end);
+
       if (params.dumpInstructions)
       {
-        for (; lowerIt != upperIt; ++lowerIt)
-          os << "0x" << std::hex << lowerIt->first - objIt->first.start + objIt->second.baseAddress()
-             << " 0 " << std::dec << lowerIt->second.count() << '\n';
+        for (; entryFirst != entryLast; ++entryFirst)
+          os << "0x" << std::hex << entryFirst->first - object.first.start + object.second.baseAddress()
+             << " 0 " << std::dec << entryFirst->second.count() << '\n';
       }
       else
       {
-        Count total = std::accumulate(lowerIt, upperIt, 0, CountSum());
+        Count total = std::accumulate(entryFirst, entryLast, 0, CountSum());
         os << "0 " << total << '\n';
+        entryFirst = entryLast;
       }
-      os << '\n';
+
+      ++symFirst;
     }
+    os << '\n';
   }
 }
 

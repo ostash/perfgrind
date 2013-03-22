@@ -95,12 +95,23 @@ public:
   SymbolData(const std::string& name)
     : name_(name)
   {}
+  const std::string& name() const { return name_; }
 private:
   std::string name_;
 };
 
 typedef std::map<Range, SymbolData> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
+
+inline bool operator<(const Symbol& symbol, Address value)
+{
+  return symbol.first < Range(value);
+}
+
+inline bool operator<(Address value, const Symbol& symbol)
+{
+  return Range(value) < symbol.first;
+}
 
 class ProfilePrivate;
 
