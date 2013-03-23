@@ -196,13 +196,11 @@ void Profile::load(std::istream &is, Mode mode)
   }
 
   // Drop memory objects that don't have any entries
-  const EntryStorage& cEntries =  d->entries;
-  EntryStorage::const_iterator firstInObject = cEntries.begin();
   MemoryObjectStorage::iterator objIt = d->memoryObjects.begin();
   while (objIt != d->memoryObjects.end())
   {
-    firstInObject = std::lower_bound(firstInObject, cEntries.end(), objIt->first.start);
-    EntryStorage::const_iterator lastInObject = std::upper_bound(firstInObject, cEntries.end(), objIt->first.end);
+    EntryStorage::const_iterator firstInObject = d->entries.lower_bound(objIt->first.start);
+    EntryStorage::const_iterator lastInObject = d->entries.upper_bound(objIt->first.end);
     if (firstInObject == lastInObject)
     {
       // With C++11 we can just do:
@@ -211,7 +209,6 @@ void Profile::load(std::istream &is, Mode mode)
     }
     else
       ++objIt;
-    firstInObject = lastInObject;
   }
 }
 

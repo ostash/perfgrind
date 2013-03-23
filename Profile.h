@@ -57,17 +57,6 @@ private:
 typedef std::map<Address, EntryData> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
-
-inline bool operator<(const Entry& entry, Address value)
-{
-  return entry.first < value;
-}
-
-inline bool operator<(Address value, const Entry& entry)
-{
-  return value < entry.first;
-}
-
 class MemoryObjectData
 {
 public:
@@ -102,16 +91,6 @@ private:
 
 typedef std::map<Range, SymbolData> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
-
-inline bool operator<(const Symbol& symbol, Address value)
-{
-  return symbol.first < Range(value);
-}
-
-inline bool operator<(Address value, const Symbol& symbol)
-{
-  return Range(value) < symbol.first;
-}
 
 class ProfilePrivate;
 

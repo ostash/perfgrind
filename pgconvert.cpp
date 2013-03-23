@@ -113,10 +113,7 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
   os << "events: Cycles\n\n";
 
   const SymbolStorage& symbols = profile.symbols();
-  SymbolStorage::const_iterator symFirst = symbols.begin();
-
   const EntryStorage& entries =  profile.entries();
-  EntryStorage::const_iterator entryFirst = entries.begin();
 
   for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
@@ -124,15 +121,15 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
     const MemoryObject& object = *objIt;
     os << "ob=" << object.second.fileName() << '\n';
 
-    symFirst = std::lower_bound(symFirst, symbols.end(), object.first.start);
-    SymbolStorage::const_iterator symLast = std::upper_bound(symFirst, symbols.end(), object.first.end);
+    SymbolStorage::const_iterator symFirst = symbols.lower_bound(Range(object.first.start));
+    SymbolStorage::const_iterator symLast = symbols.upper_bound(Range(object.first.end));
     while (symFirst != symLast)
     {
       const Symbol& symbol = *symFirst;
       os << "fn=" << symbol.second.name() << '\n';
 
-      entryFirst = std::lower_bound(entryFirst, entries.end(), symbol.first.start);
-      EntryStorage::const_iterator entryLast = std::upper_bound(entryFirst, entries.end(), symbol.first.end);
+      EntryStorage::const_iterator entryFirst = entries.lower_bound(symbol.first.start);
+      EntryStorage::const_iterator entryLast = entries.upper_bound(symbol.first.end);
 
       if (params.dumpInstructions)
       {
