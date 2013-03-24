@@ -13,15 +13,6 @@
 #include <iostream>
 #endif
 
-void EntryData::appendBranch(Address address, Count count)
-{
-  BranchStorage::iterator branchIt = branches_.find(address);
-  if (branchIt == branches_.end())
-    branches_.insert(Branch(address, count));
-  else
-    branchIt->second += count;
-}
-
 namespace pe {
 
 /// Data about mmap event
@@ -64,8 +55,59 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
-struct ProfilePrivate
+void EntryData::appendBranch(Address address, Count count)
 {
+  BranchStorage::iterator branchIt = branches_.find(address);
+  if (branchIt == branches_.end())
+    branches_.insert(Branch(address, count));
+  else
+    branchIt->second += count;
+}
+
+EntryData& MemoryObjectData::appendEntry(Address address, Count count)
+{
+  EntryStorage::iterator entryIt = entries_.find(address);
+  if (entryIt == entries_.end())
+    entryIt = entries_.insert(Entry(address, EntryData(count))).first;
+  else
+    entryIt->second.addCount(count);
+
+  return entryIt->second;
+}
+
+void MemoryObjectData::appendBranch(Address from, Address to, Count count)
+{
+  appendEntry(from, 0).appendBranch(to, count);
+}
+
+void MemoryObjectData::fixupBranches(const SymbolStorage& symbols)
+{
+  // Fixup branches
+  // Call "to" address should point to first address of called function,
+  // this will allow group them as well
+  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
+  {
+    EntryData& entryData = entryIt->second;
+    if (entryData.branches().size() == 0)
+      continue;
+
+    EntryData fixedEntry(entryData.count());
+    for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
+         ++branchIt)
+    {
+      SymbolStorage::const_iterator symIt = symbols.find(Range(branchIt->first));
+      if (symIt != symbols.end())
+        fixedEntry.appendBranch(symIt->first.start, branchIt->second);
+      else
+        fixedEntry.appendBranch(branchIt->first, branchIt->second);
+    }
+    entryData.swap(fixedEntry);
+  }
+}
+
+class ProfilePrivate
+{
+  friend class Profile;
   ProfilePrivate()
     : mmapEventCount(0)
     , goodSamplesCount(0)
@@ -73,16 +115,10 @@ struct ProfilePrivate
   {}
 
   void processMmapEvent(const pe::mmap_event &event);
-
   void processSampleEvent(const pe::sample_event &event, Profile::Mode mode);
-  EntryData &appendEntry(Address address, Count count);
-  void appendBranch(Address from, Address to, Count count);
-
-  bool isValidAdress(Address address) const;
 
   MemoryObjectStorage memoryObjects;
   SymbolStorage symbols;
-  EntryStorage entries;
 
   size_t mmapEventCount;
   size_t goodSamplesCount;
@@ -95,16 +131,16 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
   std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
 #endif
   memoryObjects.insert(MemoryObject(Range(event.address, event.address + event.length),
-                                    MemoryObjectData(event.fileName)));
+                                    new MemoryObjectData(event.fileName)));
 #ifndef NDEBUG
   if (!insRes.second)
   {
     std::cerr << "Memory object was not inserted! " << event.address << " " << event.length << " "
               << event.fileName << '\n';
     std::cerr << "Already have another object: " << (insRes.first->first.start) << ' '
-              << (insRes.first->first.end) << ' ' << insRes.first->second.fileName() << '\n';
+              << (insRes.first->first.end) << ' ' << insRes.first->second->fileName() << '\n';
     for (MemoryObjectStorage::const_iterator it = memoryObjects.begin(); it != memoryObjects.end(); ++it)
-      std::cerr << it->first.start << ' ' << it->first.end << ' ' << it->second.fileName() << '\n';
+      std::cerr << it->first.start << ' ' << it->first.end << ' ' << it->second->fileName() << '\n';
     std::cerr << std::endl;
   }
 #endif
@@ -113,15 +149,20 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
 
 void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::Mode mode)
 {
-  if (event.callchain[0] != PERF_CONTEXT_USER ||
-      !isValidAdress(event.ip) ||
-      event.callchainSize < 2 || event.callchainSize > PERF_MAX_STACK_DEPTH)
+  if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2 || event.callchainSize > PERF_MAX_STACK_DEPTH)
   {
     badSamplesCount++;
     return;
   }
 
-  appendEntry(event.ip, 1);
+  MemoryObjectStorage::iterator objIt = memoryObjects.find(Range(event.ip));
+  if (objIt == memoryObjects.end())
+  {
+    badSamplesCount++;
+    return;
+  }
+
+  objIt->second->appendEntry(event.ip, 1);
   goodSamplesCount++;
 
   if (mode != Profile::CallGraph)
@@ -139,34 +180,17 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
       skipFrame = (callFrom != PERF_CONTEXT_USER);
       continue;
     }
-    if (skipFrame || callFrom == callTo || !isValidAdress(callFrom))
+    if (skipFrame || callFrom == callTo)
       continue;
 
-    appendBranch(callFrom, callTo, 1);
+    objIt = memoryObjects.find(Range(callFrom));
+    if (objIt == memoryObjects.end())
+      continue;
+
+    objIt->second->appendBranch(callFrom, callTo, 1);
 
     callTo = callFrom;
   }
-}
-
-EntryData& ProfilePrivate::appendEntry(Address address, Count count)
-{
-  EntryStorage::iterator entryIt = entries.find(address);
-  if (entryIt == entries.end())
-    entryIt = entries.insert(Entry(address, EntryData(count))).first;
-  else
-    entryIt->second.addCount(count);
-
-  return entryIt->second;
-}
-
-void ProfilePrivate::appendBranch(Address from, Address to, Count count)
-{
-  appendEntry(from, 0).appendBranch(to, count);
-}
-
-bool ProfilePrivate::isValidAdress(Address address) const
-{
-  return memoryObjects.find(Range(address)) != memoryObjects.end();
 }
 
 Profile::Profile() : d(new ProfilePrivate)
@@ -174,6 +198,8 @@ Profile::Profile() : d(new ProfilePrivate)
 
 Profile::~Profile()
 {
+  for (MemoryObjectStorage::iterator objIt = d->memoryObjects.begin(); objIt != d->memoryObjects.end(); ++objIt)
+    delete objIt->second;
   delete d;
 }
 
@@ -199,9 +225,7 @@ void Profile::load(std::istream &is, Mode mode)
   MemoryObjectStorage::iterator objIt = d->memoryObjects.begin();
   while (objIt != d->memoryObjects.end())
   {
-    EntryStorage::const_iterator firstInObject = d->entries.lower_bound(objIt->first.start);
-    EntryStorage::const_iterator lastInObject = d->entries.upper_bound(objIt->first.end);
-    if (firstInObject == lastInObject)
+    if (objIt->second->entries().size() == 0)
     {
       // With C++11 we can just do:
       // objIt = d->memoryObjects.erase(objIt);
@@ -229,27 +253,8 @@ size_t Profile::badSamplesCount() const
 
 void Profile::fixupBranches()
 {
-  // Fixup branches
-  // Call "to" address should point to first address of called function,
-  // this will allow group them as well
-  for (EntryStorage::iterator entryIt = d->entries.begin(); entryIt != d->entries.end(); ++entryIt)
-  {
-    EntryData& entryData = entryIt->second;
-    if (entryData.branches().size() == 0)
-      continue;
-
-    EntryData fixedEntry(entryData.count());
-    for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
-         ++branchIt)
-    {
-      SymbolStorage::const_iterator symIt = d->symbols.find(Range(branchIt->first));
-      if (symIt != symbols().end())
-        fixedEntry.appendBranch(symIt->first.start, branchIt->second);
-      else
-        fixedEntry.appendBranch(branchIt->first, branchIt->second);
-    }
-    entryData.swap(fixedEntry);
-  }
+  for (MemoryObjectStorage::iterator objIt = d->memoryObjects.begin(); objIt != d->memoryObjects.end(); ++objIt)
+    objIt->second->fixupBranches(d->symbols);
 }
 
 const MemoryObjectStorage& Profile::memoryObjects() const
@@ -270,9 +275,4 @@ const SymbolStorage& Profile::symbols() const
 SymbolStorage& Profile::symbols()
 {
   return d->symbols;
-}
-
-const EntryStorage& Profile::entries() const
-{
-  return d->entries;
 }

@@ -113,14 +113,14 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
   os << "events: Cycles\n\n";
 
   const SymbolStorage& symbols = profile.symbols();
-  const EntryStorage& entries =  profile.entries();
 
   for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
   {
     const MemoryObject& object = *objIt;
-    os << "ob=" << object.second.fileName() << '\n';
+    os << "ob=" << object.second->fileName() << '\n';
 
+    const EntryStorage& entries =  object.second->entries();
     SymbolStorage::const_iterator symFirst = symbols.lower_bound(Range(object.first.start));
     SymbolStorage::const_iterator symLast = symbols.upper_bound(Range(object.first.end));
     while (symFirst != symLast)
@@ -135,7 +135,7 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       {
         for (; entryFirst != entryLast; ++entryFirst)
           if (entryFirst->second.count())
-            os << "0x" << std::hex << entryFirst->first - object.first.start + object.second.baseAddress()
+            os << "0x" << std::hex << entryFirst->first - object.first.start + object.second->baseAddress()
                << " 0 " << std::dec << entryFirst->second.count() << '\n';
       }
       else
@@ -147,7 +147,7 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
              ++branchIt)
         {
           const MemoryObject& callObject = *profile.memoryObjects().find(Range(branchIt->first));
-          os << "cob=" << callObject.second.fileName() << '\n';
+          os << "cob=" << callObject.second->fileName() << '\n';
           const Symbol& callSymbol = *symbols.find(Range(branchIt->first));
           os << "cfn=" << callSymbol.second.name() << '\n';
           os << "calls=1 0\n0 " << branchIt->second << '\n';
@@ -180,14 +180,9 @@ int main(int argc, char** argv)
   for (MemoryObjectStorage::iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
   {
-    EntryStorage::const_iterator lowerIt = profile.entries().lower_bound(objIt->first.start);
-    EntryStorage::const_iterator upperIt = profile.entries().upper_bound(objIt->first.end);
-    if (lowerIt != upperIt)
-    {
-      AddressResolver r(params.details, objIt->second.fileName().c_str(), objIt->first.end - objIt->first.start);
-      r.resolve(lowerIt, upperIt, objIt->first.start, profile.symbols());
-      objIt->second.setBaseAddress(r.baseAddress());
-    }
+      AddressResolver r(params.details, objIt->second->fileName().c_str(), objIt->first.end - objIt->first.start);
+      r.resolve(objIt->second->entries().begin(), objIt->second->entries().end(), objIt->first.start, profile.symbols());
+      objIt->second->setBaseAddress(r.baseAddress());
   }
 
   if (params.mode == Profile::CallGraph)

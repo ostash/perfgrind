@@ -8,6 +8,7 @@
 typedef uint64_t Address;
 typedef uint64_t Count;
 typedef uint64_t Size;
+
 struct Range
 {
   Range(uint64_t _start, uint64_t _end)
@@ -57,27 +58,6 @@ private:
 typedef std::map<Address, EntryData> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
-class MemoryObjectData
-{
-public:
-  /// Constructs memory object data
-  explicit MemoryObjectData(const char* fileName)
-    : fileName_(fileName)
-  {}
-
-  /// Returns full path to object file
-  const std::string& fileName() const { return fileName_; }
-
-  void setBaseAddress(Address value) { baseAddress_ = value; }
-  Address baseAddress() const { return baseAddress_; }
-private:
-  const std::string fileName_;
-  Address baseAddress_;
-};
-
-typedef std::map<Range, MemoryObjectData> MemoryObjectStorage;
-typedef MemoryObjectStorage::value_type MemoryObject;
-
 class SymbolData
 {
 public:
@@ -91,6 +71,34 @@ private:
 
 typedef std::map<Range, SymbolData> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
+
+class MemoryObjectData
+{
+public:
+  /// Constructs memory object data
+  explicit MemoryObjectData(const char* fileName)
+    : baseAddress_(0)
+    , fileName_(fileName)
+  {}
+
+  void setBaseAddress(Address value) { baseAddress_ = value; }
+  Address baseAddress() const { return baseAddress_; }
+  /// Returns full path to object file
+  const std::string& fileName() const { return fileName_; }
+
+  EntryData &appendEntry(Address address, Count count);
+  void appendBranch(Address from, Address to, Count count);
+  void fixupBranches(const SymbolStorage& symbols);
+
+  const EntryStorage& entries() const { return entries_; }
+private:
+  Address baseAddress_;
+  EntryStorage entries_;
+  std::string fileName_;
+};
+
+typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
+typedef MemoryObjectStorage::value_type MemoryObject;
 
 class ProfilePrivate;
 
@@ -112,7 +120,6 @@ public:
   MemoryObjectStorage& memoryObjects();
   const SymbolStorage& symbols() const;
   SymbolStorage& symbols();
-  const EntryStorage& entries() const;
 private:
   Profile(const Profile&);
   Profile& operator=(const Profile&);

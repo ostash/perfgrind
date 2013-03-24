@@ -36,8 +36,13 @@ int main(int argc, char** argv)
   profile.load(input, mode);
   input.close();
 
+  size_t entryCount = 0;
+  for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin(); objIt != profile.memoryObjects().end();
+       ++objIt)
+    entryCount += objIt->second->entries().size();
+
   std::cout << "memory objects: " << profile.memoryObjects().size()
-     << "\nentries: " << profile.entries().size()
+     << "\nentries: " << entryCount
      << "\n\nmmap events: " << profile.mmapEventCount()
      << "\ngood sample events: " << profile.goodSamplesCount()
      << "\nbad sample events: " << profile.badSamplesCount()
