@@ -99,17 +99,26 @@ void MemoryObjectData::fixupBranches(const SymbolStorage& symbols)
     if (entryData.branches().size() == 0)
       continue;
 
+    SymbolStorage::const_iterator selfSymIt = symbols.find(Range(entryIt->first));
+    if (selfSymIt == symbols.end())
+      continue;
+
     EntryData fixedEntry(entryData.count());
     for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
          ++branchIt)
     {
       SymbolStorage::const_iterator symIt = symbols.find(Range(branchIt->first));
       if (symIt != symbols.end())
-        fixedEntry.appendBranch(symIt->first.start, branchIt->second);
-      else
-        fixedEntry.appendBranch(branchIt->first, branchIt->second);
+      {
+        if (symIt != selfSymIt)
+          fixedEntry.appendBranch(symIt->first.start, branchIt->second);
+      }
     }
-    entryData.swap(fixedEntry);
+
+    if (fixedEntry.branches().size() != 0 || entryData.count() != 0)
+      entryData.swap(fixedEntry);
+    else
+      entries_.erase(entryIt--);
   }
 }
 
