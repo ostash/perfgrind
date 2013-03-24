@@ -66,13 +66,21 @@ void EntryData::appendBranch(Address address, Count count)
 
 EntryData& MemoryObjectData::appendEntry(Address address, Count count)
 {
-  EntryStorage::iterator entryIt = entries_.find(address);
-  if (entryIt == entries_.end())
-    entryIt = entries_.insert(Entry(address, EntryData(count))).first;
+  // For C++11 we will need upper bound
+  EntryStorage::iterator entryIt = entries_.lower_bound(address);
+  entryIt = entries_.insert(entryIt, Entry(address, 0));
+  if (entryIt->second != 0)
+    entryIt->second->addCount(count);
   else
-    entryIt->second.addCount(count);
+    entryIt->second = new EntryData(count);
 
-  return entryIt->second;
+  return *(entryIt->second);
+}
+
+MemoryObjectData::~MemoryObjectData()
+{
+  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries().end(); ++entryIt)
+    delete entryIt->second;
 }
 
 void MemoryObjectData::appendBranch(Address from, Address to, Count count)
@@ -87,7 +95,7 @@ void MemoryObjectData::fixupBranches(const SymbolStorage& symbols)
   // this will allow group them as well
   for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
   {
-    EntryData& entryData = entryIt->second;
+    EntryData& entryData = *(entryIt->second);
     if (entryData.branches().size() == 0)
       continue;
 

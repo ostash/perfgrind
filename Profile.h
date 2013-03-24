@@ -55,7 +55,7 @@ private:
   BranchStorage branches_;
 };
 
-typedef std::map<Address, EntryData> EntryStorage;
+typedef std::map<Address, EntryData*> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
 class SymbolData
@@ -80,6 +80,7 @@ public:
     : baseAddress_(0)
     , fileName_(fileName)
   {}
+  ~MemoryObjectData();
 
   void setBaseAddress(Address value) { baseAddress_ = value; }
   Address baseAddress() const { return baseAddress_; }

@@ -95,9 +95,9 @@ struct EntryPlus
 {
   EntryData& operator()(EntryData& first, const Entry& second) const
   {
-    first.addCount(second.second.count());
-    for (BranchStorage::const_iterator branchIt = second.second.branches().begin();
-         branchIt != second.second.branches().end(); ++branchIt)
+    first.addCount(second.second->count());
+    for (BranchStorage::const_iterator branchIt = second.second->branches().begin();
+         branchIt != second.second->branches().end(); ++branchIt)
       first.appendBranch(branchIt->first, branchIt->second);
     return first;
   }
@@ -134,9 +134,9 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       if (params.dumpInstructions)
       {
         for (; entryFirst != entryLast; ++entryFirst)
-          if (entryFirst->second.count())
+          if (entryFirst->second->count())
             os << "0x" << std::hex << entryFirst->first - object.first.start + object.second->baseAddress()
-               << " 0 " << std::dec << entryFirst->second.count() << '\n';
+               << " 0 " << std::dec << entryFirst->second->count() << '\n';
       }
       else
       {
