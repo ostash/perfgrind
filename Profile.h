@@ -31,28 +31,20 @@ struct Range
 typedef std::map<Address, Count> BranchStorage;
 typedef BranchStorage::value_type Branch;
 
+class EntryDataPrivate;
 class EntryData
 {
 public:
-  explicit EntryData(Count count)
-    : count_(count)
-  {}
-
-  Count count() const { return count_; }
-  const BranchStorage& branches() const { return branches_; }
-
-  void addCount(Count count) { count_ += count; }
-  void appendBranch(Address address, Count count = 1);
-
-  void swap(EntryData& other)
-  {
-    std::swap(count_, other.count_);
-    branches_.swap(other.branches_);
-  }
-
+  Count count() const;
+  const BranchStorage& branches() const;
 private:
-  Count count_;
-  BranchStorage branches_;
+  friend class MemoryObjectData;
+  EntryData(const EntryData&);
+  EntryData& operator=(const EntryData&);
+
+  explicit EntryData(Count count);
+  ~EntryData();
+  EntryDataPrivate* d;
 };
 
 typedef std::map<Address, EntryData*> EntryStorage;

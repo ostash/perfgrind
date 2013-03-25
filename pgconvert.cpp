@@ -91,14 +91,26 @@ void parseArguments(Params& params, int argc, char* argv[])
   }
 }
 
+struct CountedValue
+{
+  CountedValue() : value(0) {}
+  Count value;
+};
+
+struct EntryTotal
+{
+  CountedValue count;
+  std::map<Address, CountedValue> branches;
+};
+
 struct EntryPlus
 {
-  EntryData& operator()(EntryData& first, const Entry& second) const
+  EntryTotal& operator()(EntryTotal& first, const Entry& second) const
   {
-    first.addCount(second.second->count());
+    first.count.value += second.second->count();
     for (BranchStorage::const_iterator branchIt = second.second->branches().begin();
          branchIt != second.second->branches().end(); ++branchIt)
-      first.appendBranch(branchIt->first, branchIt->second);
+      first.branches[branchIt->first].value += branchIt->second;
     return first;
   }
 };
@@ -140,17 +152,17 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       }
       else
       {
-        EntryData total = std::accumulate(entryFirst, entryLast, EntryData(0), EntryPlus());
-        if (total.count())
-          os << "0 " << total.count() << '\n';
-        for (BranchStorage::const_iterator branchIt = total.branches().begin(); branchIt != total.branches().end();
-             ++branchIt)
+        const EntryTotal& total = std::accumulate(entryFirst, entryLast, EntryTotal(), EntryPlus());
+        if (total.count.value)
+          os << "0 " << total.count.value << '\n';
+        for (std::map<Address, CountedValue>::const_iterator branchIt = total.branches.begin();
+             branchIt != total.branches.end(); ++branchIt)
         {
           const MemoryObject& callObject = *profile.memoryObjects().find(Range(branchIt->first));
           os << "cob=" << callObject.second->fileName() << '\n';
           const Symbol& callSymbol = *symbols.find(Range(branchIt->first));
           os << "cfn=" << callSymbol.second.name() << '\n';
-          os << "calls=1 0\n0 " << branchIt->second << '\n';
+          os << "calls=1 0\n0 " << branchIt->second.value << '\n';
         }
         entryFirst = entryLast;
       }

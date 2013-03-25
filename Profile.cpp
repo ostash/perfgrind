@@ -55,7 +55,30 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
-void EntryData::appendBranch(Address address, Count count)
+// EntryDataPrivate methods
+
+class EntryDataPrivate
+{
+  friend class EntryData;
+  friend class MemoryObjectData;
+  explicit EntryDataPrivate(Count count)
+    : count_(count)
+  {}
+
+  void addCount(Count count) { count_ += count; }
+  void appendBranch(Address address, Count count = 1);
+
+  void swap(EntryDataPrivate& other)
+  {
+    std::swap(count_, other.count_);
+    branches_.swap(other.branches_);
+  }
+
+  Count count_;
+  BranchStorage branches_;
+};
+
+void EntryDataPrivate::appendBranch(Address address, Count count)
 {
   BranchStorage::iterator branchIt = branches_.find(address);
   if (branchIt == branches_.end())
@@ -64,13 +87,26 @@ void EntryData::appendBranch(Address address, Count count)
     branchIt->second += count;
 }
 
+// EntryData methods
+Count EntryData::count() const { return d->count_; }
+
+const BranchStorage& EntryData::branches() const { return d->branches_; }
+
+EntryData::EntryData(Count count)
+  : d(new EntryDataPrivate(count))
+{}
+
+EntryData::~EntryData() { delete d; }
+
+// MemoryObjectData methods
+
 EntryData& MemoryObjectData::appendEntry(Address address, Count count)
 {
   // For C++11 we will need upper bound
   EntryStorage::iterator entryIt = entries_.lower_bound(address);
   entryIt = entries_.insert(entryIt, Entry(address, 0));
   if (entryIt->second != 0)
-    entryIt->second->addCount(count);
+    entryIt->second->d->addCount(count);
   else
     entryIt->second = new EntryData(count);
 
@@ -85,7 +121,7 @@ MemoryObjectData::~MemoryObjectData()
 
 void MemoryObjectData::appendBranch(Address from, Address to, Count count)
 {
-  appendEntry(from, 0).appendBranch(to, count);
+  appendEntry(from, 0).d->appendBranch(to, count);
 }
 
 void MemoryObjectData::fixupBranches(const SymbolStorage& symbols)
@@ -111,12 +147,12 @@ void MemoryObjectData::fixupBranches(const SymbolStorage& symbols)
       if (symIt != symbols.end())
       {
         if (symIt != selfSymIt)
-          fixedEntry.appendBranch(symIt->first.start, branchIt->second);
+          fixedEntry.d->appendBranch(symIt->first.start, branchIt->second);
       }
     }
 
     if (fixedEntry.branches().size() != 0 || entryData.count() != 0)
-      entryData.swap(fixedEntry);
+      entryData.d->swap(*fixedEntry.d);
     else
       entries_.erase(entryIt--);
   }
