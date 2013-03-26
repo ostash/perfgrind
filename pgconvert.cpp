@@ -100,7 +100,7 @@ struct CountedValue
 struct EntryTotal
 {
   CountedValue count;
-  std::map<Address, CountedValue> branches;
+  std::map<const Symbol*, CountedValue> branches;
 };
 
 struct EntryPlus
@@ -110,7 +110,7 @@ struct EntryPlus
     first.count.value += second.second->count();
     for (BranchStorage::const_iterator branchIt = second.second->branches().begin();
          branchIt != second.second->branches().end(); ++branchIt)
-      first.branches[branchIt->first].value += branchIt->second;
+      first.branches[branchIt->first.symbol].value += branchIt->second;
     return first;
   }
 };
@@ -153,13 +153,13 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
         const EntryTotal& total = std::accumulate(entryFirst, entryLast, EntryTotal(), EntryPlus());
         if (total.count.value)
           os << "0 " << total.count.value << '\n';
-        for (std::map<Address, CountedValue>::const_iterator branchIt = total.branches.begin();
+        for (std::map<const Symbol*, CountedValue>::const_iterator branchIt = total.branches.begin();
              branchIt != total.branches.end(); ++branchIt)
         {
-          const MemoryObjectData* callObjectData = profile.memoryObjects().find(Range(branchIt->first))->second;
+          const Symbol* callSymbol = branchIt->first;
+          const MemoryObjectData* callObjectData = profile.memoryObjects().find(Range(callSymbol->first.start))->second;
           os << "cob=" << callObjectData->fileName() << '\n';
-          const SymbolData* callSymbolData = callObjectData->symbols().find(Range(branchIt->first))->second;
-          os << "cfn=" << callSymbolData->name() << '\n';
+          os << "cfn=" << callSymbol->second->name() << '\n';
           os << "calls=1 0\n0 " << branchIt->second.value << '\n';
         }
         entryFirst = entryLast;

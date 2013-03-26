@@ -68,7 +68,7 @@ class EntryDataPrivate
   {}
 
   void addCount(Count count) { count_ += count; }
-  void appendBranch(Address address, Count count = 1);
+  void appendBranch(BranchTo branchTo, Count count = 1);
 
   void swap(EntryDataPrivate& other)
   {
@@ -80,11 +80,11 @@ class EntryDataPrivate
   BranchStorage branches_;
 };
 
-void EntryDataPrivate::appendBranch(Address address, Count count)
+void EntryDataPrivate::appendBranch(BranchTo branchTo, Count count)
 {
-  BranchStorage::iterator branchIt = branches_.find(address);
+  BranchStorage::iterator branchIt = branches_.find(branchTo);
   if (branchIt == branches_.end())
-    branches_.insert(Branch(address, count));
+    branches_.insert(Branch(branchTo, count));
   else
     branchIt->second += count;
 }
@@ -190,12 +190,13 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
     for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
          ++branchIt)
     {
-      const MemoryObjectData* callObjectData = objects.find(Range(branchIt->first))->second;
-      SymbolStorage::const_iterator callSymbolIt = callObjectData->d->symbols_.find(Range(branchIt->first));
+      const Address& branchAddress = branchIt->first.address;
+      const MemoryObjectData* callObjectData = objects.find(Range(branchAddress))->second;
+      SymbolStorage::const_iterator callSymbolIt = callObjectData->d->symbols_.find(Range(branchAddress));
       if (callSymbolIt != callObjectData->symbols().end())
       {
         if (callObjectData->d != this || callSymbolIt != selfSymIt)
-          fixedEntry.d->appendBranch(callSymbolIt->first.start, branchIt->second);
+          fixedEntry.d->appendBranch(&(*callSymbolIt), branchIt->second);
       }
     }
 

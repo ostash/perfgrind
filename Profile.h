@@ -28,7 +28,37 @@ struct Range
   uint64_t end;
 };
 
-typedef std::map<Address, Count> BranchStorage;
+class SymbolData
+{
+public:
+  SymbolData(const std::string& name)
+    : name_(name)
+  {}
+  const std::string& name() const { return name_; }
+private:
+  std::string name_;
+};
+
+typedef std::map<Range, SymbolData*> SymbolStorage;
+typedef SymbolStorage::value_type Symbol;
+
+union BranchTo
+{
+  BranchTo(Address value)
+    : address(value)
+  {}
+  BranchTo(const Symbol* value)
+  {
+    // Here is strong assumption that sizeof(Address) >= sizeof(Symbol*)
+    address = 0;
+    symbol = value;
+  }
+  Address address;
+  const Symbol* symbol;
+  bool operator<(const BranchTo& other) const { return address < other.address; }
+};
+
+typedef std::map<BranchTo, Count> BranchStorage;
 typedef BranchStorage::value_type Branch;
 
 class EntryDataPrivate;
@@ -49,20 +79,6 @@ private:
 
 typedef std::map<Address, EntryData*> EntryStorage;
 typedef EntryStorage::value_type Entry;
-
-class SymbolData
-{
-public:
-  SymbolData(const std::string& name)
-    : name_(name)
-  {}
-  const std::string& name() const { return name_; }
-private:
-  std::string name_;
-};
-
-typedef std::map<Range, SymbolData*> SymbolStorage;
-typedef SymbolStorage::value_type Symbol;
 
 class MemoryObjectDataPrivate;
 class MemoryObjectData
