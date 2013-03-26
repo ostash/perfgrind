@@ -14,12 +14,12 @@ struct Params
 {
   Params()
     : mode(Profile::CallGraph)
-    , details(AddressResolver::Symbols)
+    , details(Profile::Symbols)
     , dumpInstructions(false)
     , inputFile(0)
   {}
   Profile::Mode mode;
-  AddressResolver::DetailLevel details;
+  Profile::DetailLevel details;
   bool dumpInstructions;
   const char* inputFile;
 };
@@ -66,12 +66,12 @@ void parseArguments(Params& params, int argc, char* argv[])
       // detail
       nextArgType = 0;
       if (strcmp(argp, "object") == 0)
-        params.details = AddressResolver::Objects;
+        params.details = Profile::Objects;
       else if (strcmp(argp, "symbol") == 0)
-        params.details = AddressResolver::Symbols;
+        params.details = Profile::Symbols;
       else if (strcmp(argp, "source") == 0)
         // Source is not supported yet
-        params.details = AddressResolver::Symbols;
+        params.details = Profile::Symbols;
       else
       {
         std::cerr << "Invalid details level '" << argp <<"'\n";
@@ -81,7 +81,7 @@ void parseArguments(Params& params, int argc, char* argv[])
   }
 
   // It is not possible to use callgraphs with objects only
-  if (params.details == AddressResolver::Objects)
+  if (params.details == Profile::Objects)
     params.mode = Profile::Flat;
 
   if (!params.inputFile)
@@ -124,8 +124,6 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
 
   os << "events: Cycles\n\n";
 
-  const SymbolStorage& symbols = profile.symbols();
-
   for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
        objIt != profile.memoryObjects().end(); ++objIt)
   {
@@ -133,12 +131,12 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
     os << "ob=" << object.second->fileName() << '\n';
 
     const EntryStorage& entries =  object.second->entries();
-    SymbolStorage::const_iterator symFirst = symbols.lower_bound(Range(object.first.start));
-    SymbolStorage::const_iterator symLast = symbols.upper_bound(Range(object.first.end));
-    while (symFirst != symLast)
+    const SymbolStorage& symbols = object.second->symbols();
+
+    for (SymbolStorage::const_iterator symIt = symbols.begin(); symIt != symbols.end(); ++symIt)
     {
-      const Symbol& symbol = *symFirst;
-      os << "fn=" << symbol.second.name() << '\n';
+      const Symbol& symbol = *symIt;
+      os << "fn=" << symbol.second->name() << '\n';
 
       EntryStorage::const_iterator entryFirst = entries.lower_bound(symbol.first.start);
       EntryStorage::const_iterator entryLast = entries.upper_bound(symbol.first.end);
@@ -158,16 +156,14 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
         for (std::map<Address, CountedValue>::const_iterator branchIt = total.branches.begin();
              branchIt != total.branches.end(); ++branchIt)
         {
-          const MemoryObject& callObject = *profile.memoryObjects().find(Range(branchIt->first));
-          os << "cob=" << callObject.second->fileName() << '\n';
-          const Symbol& callSymbol = *symbols.find(Range(branchIt->first));
-          os << "cfn=" << callSymbol.second.name() << '\n';
+          const MemoryObjectData* callObjectData = profile.memoryObjects().find(Range(branchIt->first))->second;
+          os << "cob=" << callObjectData->fileName() << '\n';
+          const SymbolData* callSymbolData = callObjectData->symbols().find(Range(branchIt->first))->second;
+          os << "cfn=" << callSymbolData->name() << '\n';
           os << "calls=1 0\n0 " << branchIt->second.value << '\n';
         }
         entryFirst = entryLast;
       }
-
-      ++symFirst;
     }
     os << '\n';
   }
@@ -189,15 +185,7 @@ int main(int argc, char** argv)
   profile.load(input, params.mode);
   input.close();
 
-  for (MemoryObjectStorage::iterator objIt = profile.memoryObjects().begin();
-       objIt != profile.memoryObjects().end(); ++objIt)
-  {
-      AddressResolver r(params.details, objIt->second->fileName().c_str(), objIt->first.end - objIt->first.start);
-      r.resolve(objIt->second->entries().begin(), objIt->second->entries().end(), objIt->first.start, profile.symbols());
-  }
-
-  if (params.mode == Profile::CallGraph)
-    profile.fixupBranches();
+  profile.resolveAndFixup(params.details);
 
   dump(std::cout, profile, params);
 

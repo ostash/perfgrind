@@ -179,7 +179,7 @@ struct AddressResolverPrivate
   const char* getDebugLink(Elf_Scn* section);
   void setOriginalBaseAddress(Elf* elf, Elf_Scn* section);
 
-  void constructFakeSymbols(AddressResolver::DetailLevel details, uint64_t objectSize, const char* baseName);
+  void constructFakeSymbols(Profile::DetailLevel details, uint64_t objectSize, const char* baseName);
 
   uint64_t baseAddress;
   uint64_t origBaseAddress;
@@ -192,7 +192,7 @@ struct AddressResolverPrivate
 };
 
 
-AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint64_t objectSize)
+AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileName, uint64_t objectSize)
   : d(new AddressResolverPrivate)
 
 {
@@ -201,7 +201,7 @@ AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint
   d->origBaseAddress = d->baseAddress = elfh.getBaseAddress();
 
   // Don't load symbols if not requested
-  bool symTabLoaded = (details == Objects);
+  bool symTabLoaded = (details == Profile::Objects);
   // Try to load .symtab from main file
   if (!symTabLoaded && elfh.getSection(SymTab))
   {
@@ -212,7 +212,7 @@ AddressResolver::AddressResolver(DetailLevel details, const char *fileName, uint
     // Try to load .dynsym from main file
     d->loadSymbolsFromSection(elfh.get(), elfh.getSection(DynSym));
 
-  if (details != Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
+  if (details != Profile::Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
     d->setOriginalBaseAddress(elfh.get(), elfh.getSection(PrelinkUndo));
 
   if (elfh.getSection(DebugLink))
@@ -262,40 +262,39 @@ static std::string constructSymbolName(uint64_t address)
   return ss.str();
 }
 
-void AddressResolver::resolve(EntryStorage::const_iterator first, EntryStorage::const_iterator last, uint64_t loadBase,
-                              SymbolStorage& symbols)
+Symbol AddressResolver::resolve(Address value, Address loadBase) const
 {
   uint64_t adjust = loadBase - d->baseAddress;
-  while (first != last)
+  ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(value - adjust));
+  if (arSymIt == d->symbols.end())
   {
-    ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(first->first - adjust));
-    if (arSymIt == d->symbols.end())
-    {
 #ifndef NDEBUG
-    std::cerr << "Can't resolve symbol for address " << std::hex << first->first - adjust
-              << ", load base: " << loadBase << std::dec << '\n';
+  std::cerr << "Can't resolve symbol for address " << std::hex << value - adjust
+            << ", load base: " << loadBase << std::dec << '\n';
 #endif
-    ++first;
-    continue;
-    }
 
-    std::string symbolName = arSymIt->second.name;
-    if (symbolName.empty())
-      symbolName = constructSymbolName(arSymIt->first.start) ;
-    else
+    return Symbol(Range(0, 0), 0);
+  }
+
+  const Address& symStart = arSymIt->first.start;
+  SymbolData* symData;
+
+  const std::string& maybeSymbolName = arSymIt->second.name;
+  if (maybeSymbolName.empty())
+    symData = new SymbolData(constructSymbolName(symStart));
+  else
+  {
+    char* demangledName = __cxxabiv1::__cxa_demangle(maybeSymbolName.c_str(), 0, 0, 0);
+    if (demangledName)
     {
-      char* demangledName = __cxxabiv1::__cxa_demangle(symbolName.c_str(), 0, 0, 0);
-      if (demangledName)
-        symbolName = demangledName;
+      symData = new SymbolData(demangledName);
       free(demangledName);
     }
-
-    Symbol symbol(Range(arSymIt->first.start + adjust, arSymIt->first.end + adjust), SymbolData(symbolName));
-    symbols.insert(symbol);
-
-    do { ++first; }
-    while (first != last && first->first - adjust < arSymIt->first.end);
+    else
+      symData = new SymbolData(maybeSymbolName);
   }
+
+  return Symbol(Range(symStart + adjust, arSymIt->first.end + adjust), symData);
 }
 
 void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
@@ -402,7 +401,7 @@ void AddressResolverPrivate::setOriginalBaseAddress(Elf *elf, Elf_Scn* section)
       }
 }
 
-void AddressResolverPrivate::constructFakeSymbols(AddressResolver::DetailLevel details, uint64_t objectSize,
+void AddressResolverPrivate::constructFakeSymbols(Profile::DetailLevel details, uint64_t objectSize,
                                                   const char* baseName)
 {
   // Create fake symbols to cover gaps
@@ -441,7 +440,7 @@ void AddressResolverPrivate::constructFakeSymbols(AddressResolver::DetailLevel d
   if (baseAddress + objectSize - prevEnd >= 4)
   {
     ARSymbolData newSymbolData(baseAddress + objectSize - prevEnd);
-    if (details == AddressResolver::Objects)
+    if (details == Profile::Objects)
       (newSymbolData.name = "whole").append(1, '@').append(baseName);
     newSymbols.insert(ARSymbol(Range(prevEnd, baseAddress + objectSize), newSymbolData));
   }

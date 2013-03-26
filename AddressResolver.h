@@ -9,19 +9,11 @@ class AddressResolverPrivate;
 class AddressResolver
 {
 public:
-  enum DetailLevel
-  {
-    Objects,
-    Symbols,
-    Sources
-  };
-  AddressResolver(DetailLevel details, const char* fileName, uint64_t objectSize);
+  AddressResolver(Profile::DetailLevel details, const char* fileName, uint64_t objectSize);
   ~AddressResolver();
 
   Address baseAddress() const;
-
-  void resolve(EntryStorage::const_iterator first, EntryStorage::const_iterator last, uint64_t loadBase,
-               SymbolStorage& symbols);
+  Symbol resolve(Address value, Address loadBase) const;
 
 private:
   AddressResolver(const AddressResolver&);

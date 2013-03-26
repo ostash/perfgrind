@@ -61,7 +61,7 @@ private:
   std::string name_;
 };
 
-typedef std::map<Range, SymbolData> SymbolStorage;
+typedef std::map<Range, SymbolData*> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
 
 class MemoryObjectDataPrivate;
@@ -71,8 +71,10 @@ public:
   Address baseAddress() const;
   const std::string& fileName() const;
   const EntryStorage& entries() const;
+  const SymbolStorage& symbols() const;
 private:
   friend class ProfilePrivate;
+  friend class MemoryObjectDataPrivate;
   MemoryObjectData(const MemoryObjectData&);
   MemoryObjectData& operator=(const MemoryObjectData&);
 
@@ -90,6 +92,7 @@ class Profile
 {
 public:
   enum Mode { Flat, CallGraph };
+  enum DetailLevel { Objects, Symbols, Sources };
   Profile();
   ~Profile();
 
@@ -98,12 +101,11 @@ public:
   size_t goodSamplesCount() const;
   size_t badSamplesCount() const;
 
-  void fixupBranches();
+  void resolveAndFixup(DetailLevel details);
 
   const MemoryObjectStorage& memoryObjects() const;
   MemoryObjectStorage& memoryObjects();
-  const SymbolStorage& symbols() const;
-  SymbolStorage& symbols();
+
 private:
   Profile(const Profile&);
   Profile& operator=(const Profile&);

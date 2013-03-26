@@ -1,5 +1,7 @@
 #include "Profile.h"
 
+#include "AddressResolver.h"
+
 #include <algorithm>
 #include <vector>
 #include <climits>
@@ -113,10 +115,13 @@ class MemoryObjectDataPrivate
   void setBaseAddress(Address value) { baseAddress_ = value; }
   EntryData &appendEntry(Address address, Count count);
   void appendBranch(Address from, Address to, Count count);
-  void fixupBranches(const SymbolStorage& symbols);
+
+  void resolveEntries(const AddressResolver& resolver, Address loadBase);
+  void fixupBranches(const MemoryObjectStorage &objects);
 
   Address baseAddress_;
   EntryStorage entries_;
+  SymbolStorage symbols_;
   std::string fileName_;
 };
 
@@ -144,7 +149,29 @@ void MemoryObjectDataPrivate::appendBranch(Address from, Address to, Count count
   appendEntry(from, 0).d->appendBranch(to, count);
 }
 
-void MemoryObjectDataPrivate::fixupBranches(const SymbolStorage& symbols)
+void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase)
+{
+  // Set up correct base address
+  baseAddress_ = resolver.baseAddress();
+  // Perform resolving
+  EntryStorage::const_iterator entryIt = entries_.begin();
+  while (entryIt != entries_.end())
+  {
+    const Symbol& symbol = resolver.resolve(entryIt->first, loadBase);
+    if (symbol.second == 0)
+    {
+      ++entryIt;
+      continue;
+    }
+
+    symbols_.insert(symbol);
+
+    do { ++entryIt; }
+    while (entryIt != entries_.end() && entryIt->first < symbol.first.end);
+  }
+}
+
+void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
 {
   // Fixup branches
   // Call "to" address should point to first address of called function,
@@ -155,19 +182,20 @@ void MemoryObjectDataPrivate::fixupBranches(const SymbolStorage& symbols)
     if (entryData.branches().size() == 0)
       continue;
 
-    SymbolStorage::const_iterator selfSymIt = symbols.find(Range(entryIt->first));
-    if (selfSymIt == symbols.end())
+    SymbolStorage::const_iterator selfSymIt = symbols_.find(Range(entryIt->first));
+    if (selfSymIt == symbols_.end())
       continue;
 
     EntryData fixedEntry(entryData.count());
     for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
          ++branchIt)
     {
-      SymbolStorage::const_iterator symIt = symbols.find(Range(branchIt->first));
-      if (symIt != symbols.end())
+      const MemoryObjectData* callObjectData = objects.find(Range(branchIt->first))->second;
+      SymbolStorage::const_iterator callSymbolIt = callObjectData->d->symbols_.find(Range(branchIt->first));
+      if (callSymbolIt != callObjectData->symbols().end())
       {
-        if (symIt != selfSymIt)
-          fixedEntry.d->appendBranch(symIt->first.start, branchIt->second);
+        if (callObjectData->d != this || callSymbolIt != selfSymIt)
+          fixedEntry.d->appendBranch(callSymbolIt->first.start, branchIt->second);
       }
     }
 
@@ -185,6 +213,8 @@ Address MemoryObjectData::baseAddress() const { return d->baseAddress_; }
 const std::string& MemoryObjectData::fileName() const { return d->fileName_; }
 
 const EntryStorage& MemoryObjectData::entries() const { return d->entries_; }
+
+const SymbolStorage& MemoryObjectData::symbols() const { return d->symbols_; }
 
 MemoryObjectData::MemoryObjectData(const char *fileName)
   : d(new MemoryObjectDataPrivate(fileName))
@@ -207,10 +237,9 @@ class ProfilePrivate
   void processMmapEvent(const pe::mmap_event &event);
   void processSampleEvent(const pe::sample_event &event, Profile::Mode mode);
 
-  void fixupBranches();
+  void resolveAndFixup(Profile::DetailLevel details);
 
   MemoryObjectStorage memoryObjects;
-  SymbolStorage symbols;
 
   size_t mmapEventCount;
   size_t goodSamplesCount;
@@ -291,11 +320,18 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
   }
 }
 
-void ProfilePrivate::fixupBranches()
+void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
 {
   for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
-    objIt->second->d->fixupBranches(symbols);
+  {
+      AddressResolver r(details, objIt->second->d->fileName_.c_str(), objIt->first.end - objIt->first.start);
+      objIt->second->d->resolveEntries(r, objIt->first.start);
+  }
+  for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
+    objIt->second->d->fixupBranches(memoryObjects);
 }
+
+// Profile methods
 
 Profile::Profile() : d(new ProfilePrivate)
 {}
@@ -350,10 +386,7 @@ size_t Profile::badSamplesCount() const
   return d->badSamplesCount;
 }
 
-void Profile::fixupBranches()
-{
-  d->fixupBranches();
-}
+void Profile::resolveAndFixup(DetailLevel details) { d->resolveAndFixup(details); }
 
 const MemoryObjectStorage& Profile::memoryObjects() const
 {
@@ -363,14 +396,4 @@ const MemoryObjectStorage& Profile::memoryObjects() const
 MemoryObjectStorage& Profile::memoryObjects()
 {
   return d->memoryObjects;
-}
-
-const SymbolStorage& Profile::symbols() const
-{
-  return d->symbols;
-}
-
-SymbolStorage& Profile::symbols()
-{
-  return d->symbols;
 }
