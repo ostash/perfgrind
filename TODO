@@ -1,0 +1,20 @@
+Short and incomplete TODO list:
+
+- handle overlapping memory objects.
+
+- handle pgoff in mmap events.
+
+- use debug link section in ELF for finding separate debug info.
+
+- handle hits in PLT. At the moment they are usually reported as hits in
+  _init@object function.
+
+- detect correct call from addresses. Currently we put cumulative count to
+  instruction next after call.
+
+- create several profiles from collected data. If we collect samples by forking
+  new process, we have to enable inherit mode. This means that we will get
+  samles not only forked process, but from its children as well. We will need
+  to add PERF_SAMPLE_TID to sample_type and change .pgdata format.
+
+- perform namespace compression during dumping.
