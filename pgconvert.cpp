@@ -194,7 +194,6 @@ int main(int argc, char** argv)
   {
       AddressResolver r(params.details, objIt->second->fileName().c_str(), objIt->first.end - objIt->first.start);
       r.resolve(objIt->second->entries().begin(), objIt->second->entries().end(), objIt->first.start, profile.symbols());
-      objIt->second->setBaseAddress(r.baseAddress());
   }
 
   if (params.mode == Profile::CallGraph)

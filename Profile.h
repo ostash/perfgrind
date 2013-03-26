@@ -38,7 +38,7 @@ public:
   Count count() const;
   const BranchStorage& branches() const;
 private:
-  friend class MemoryObjectData;
+  friend class MemoryObjectDataPrivate;
   EntryData(const EntryData&);
   EntryData& operator=(const EntryData&);
 
@@ -64,30 +64,21 @@ private:
 typedef std::map<Range, SymbolData> SymbolStorage;
 typedef SymbolStorage::value_type Symbol;
 
+class MemoryObjectDataPrivate;
 class MemoryObjectData
 {
 public:
-  /// Constructs memory object data
-  explicit MemoryObjectData(const char* fileName)
-    : baseAddress_(0)
-    , fileName_(fileName)
-  {}
-  ~MemoryObjectData();
-
-  void setBaseAddress(Address value) { baseAddress_ = value; }
-  Address baseAddress() const { return baseAddress_; }
-  /// Returns full path to object file
-  const std::string& fileName() const { return fileName_; }
-
-  EntryData &appendEntry(Address address, Count count);
-  void appendBranch(Address from, Address to, Count count);
-  void fixupBranches(const SymbolStorage& symbols);
-
-  const EntryStorage& entries() const { return entries_; }
+  Address baseAddress() const;
+  const std::string& fileName() const;
+  const EntryStorage& entries() const;
 private:
-  Address baseAddress_;
-  EntryStorage entries_;
-  std::string fileName_;
+  friend class ProfilePrivate;
+  MemoryObjectData(const MemoryObjectData&);
+  MemoryObjectData& operator=(const MemoryObjectData&);
+
+  explicit MemoryObjectData(const char* fileName);
+  ~MemoryObjectData();
+  MemoryObjectDataPrivate* d;
 };
 
 typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
