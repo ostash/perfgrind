@@ -144,9 +144,21 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
       if (params.dumpInstructions)
       {
         for (; entryFirst != entryLast; ++entryFirst)
+        {
+          Address entryAddress = entryFirst->first - object.first.start + object.second->baseAddress();
           if (entryFirst->second->count())
-            os << "0x" << std::hex << entryFirst->first - object.first.start + object.second->baseAddress()
-               << " 0 " << std::dec << entryFirst->second->count() << '\n';
+            os << "0x" << std::hex << entryAddress << " 0 " << std::dec << entryFirst->second->count() << '\n';
+          for (BranchStorage::const_iterator branchIt = entryFirst->second->branches().begin();
+               branchIt != entryFirst->second->branches().end(); ++branchIt)
+          {
+            const Symbol* callSymbol = branchIt->first.symbol;
+            const MemoryObject& callObject = *profile.memoryObjects().find(Range(callSymbol->first.start));
+            os << "cob=" << callObject.second->fileName() << '\n';
+            os << "cfn=" << callSymbol->second->name() << '\n';
+            os << "calls=1 0x" << std::hex << callSymbol->first.start - callObject.first.start + callObject.second->baseAddress()
+               << "0\n0x" << std::hex << entryAddress << " 0 " << std::dec << branchIt->second << '\n';
+          }
+        }
       }
       else
       {
@@ -162,7 +174,6 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
           os << "cfn=" << callSymbol->second->name() << '\n';
           os << "calls=1 0\n0 " << branchIt->second.value << '\n';
         }
-        entryFirst = entryLast;
       }
     }
     os << '\n';
