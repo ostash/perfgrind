@@ -67,6 +67,8 @@ class EntryData
 public:
   Count count() const;
   const BranchStorage& branches() const;
+  const std::string& sourceFile() const;
+  size_t sourceLine() const;
 private:
   friend class MemoryObjectDataPrivate;
   EntryData(const EntryData&);

@@ -103,6 +103,10 @@ Count EntryData::count() const { return d->count_; }
 
 const BranchStorage& EntryData::branches() const { return d->branches_; }
 
+const std::string& EntryData::sourceFile() const { return *d->sourceFile_; }
+
+size_t EntryData::sourceLine() const { return d->sourceLine_; }
+
 EntryData::EntryData(Count count)
   : d(new EntryDataPrivate(count))
 {}
