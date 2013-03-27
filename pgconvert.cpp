@@ -14,7 +14,7 @@ struct Params
 {
   Params()
     : mode(Profile::CallGraph)
-    , details(Profile::Symbols)
+    , details(Profile::Sources)
     , dumpInstructions(false)
     , inputFile(0)
   {}
@@ -70,8 +70,7 @@ void parseArguments(Params& params, int argc, char* argv[])
       else if (strcmp(argp, "symbol") == 0)
         params.details = Profile::Symbols;
       else if (strcmp(argp, "source") == 0)
-        // Source is not supported yet
-        params.details = Profile::Symbols;
+        params.details = Profile::Sources;
       else
       {
         std::cerr << "Invalid details level '" << argp <<"'\n";

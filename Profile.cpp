@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <tr1/unordered_set>
 #include <climits>
 #include <linux/perf_event.h>
 
@@ -14,6 +15,8 @@
 #ifndef NDEBUG
 #include <iostream>
 #endif
+
+static const std::string unknownFile("???");
 
 namespace pe {
 
@@ -57,6 +60,8 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
+typedef std::tr1::unordered_set<std::string> StringTable;
+
 // EntryDataPrivate methods
 
 class EntryDataPrivate
@@ -65,6 +70,8 @@ class EntryDataPrivate
   friend class MemoryObjectDataPrivate;
   explicit EntryDataPrivate(Count count)
     : count_(count)
+    , sourceFile_(&unknownFile)
+    , sourceLine_(0)
   {}
 
   void addCount(Count count) { count_ += count; }
@@ -78,6 +85,8 @@ class EntryDataPrivate
 
   Count count_;
   BranchStorage branches_;
+  const std::string* sourceFile_;
+  size_t sourceLine_;
 };
 
 void EntryDataPrivate::appendBranch(BranchTo branchTo, Count count)
@@ -116,7 +125,7 @@ class MemoryObjectDataPrivate
   EntryData &appendEntry(Address address, Count count);
   void appendBranch(Address from, Address to, Count count);
 
-  void resolveEntries(const AddressResolver& resolver, Address loadBase);
+  void resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles);
   void fixupBranches(const MemoryObjectStorage &objects);
 
   Address baseAddress_;
@@ -149,7 +158,7 @@ void MemoryObjectDataPrivate::appendBranch(Address from, Address to, Count count
   appendEntry(from, 0).d->appendBranch(to, count);
 }
 
-void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase)
+void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase, StringTable *sourceFiles)
 {
   // Set up correct base address
   baseAddress_ = resolver.baseAddress();
@@ -166,7 +175,19 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
 
     symbols_.insert(symbol);
 
-    do { ++entryIt; }
+    do
+    {
+      if (sourceFiles)
+      {
+        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(entryIt->first, loadBase);
+        if (pos.first)
+        {
+          entryIt->second->d->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
+          entryIt->second->d->sourceLine_ = pos.second;
+        }
+      }
+      ++entryIt;
+    }
     while (entryIt != entries_.end() && entryIt->first < symbol.first.end);
   }
 }
@@ -230,7 +251,6 @@ MemoryObjectData::MemoryObjectData(const char *fileName)
 MemoryObjectData::~MemoryObjectData() { delete d; }
 
 // ProfilePrivate methods
-
 class ProfilePrivate
 {
   friend class Profile;
@@ -247,6 +267,7 @@ class ProfilePrivate
   void resolveAndFixup(Profile::DetailLevel details);
 
   MemoryObjectStorage memoryObjects;
+  StringTable sourceFiles;
 
   size_t mmapEventCount;
   size_t goodSamplesCount;
@@ -332,7 +353,7 @@ void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
   for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
   {
       AddressResolver r(details, objIt->second->d->fileName_.c_str(), objIt->first.end - objIt->first.start);
-      objIt->second->d->resolveEntries(r, objIt->first.start);
+      objIt->second->d->resolveEntries(r, objIt->first.start, details == Profile::Sources? &sourceFiles : 0);
   }
   for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
     objIt->second->d->fixupBranches(memoryObjects);
