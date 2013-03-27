@@ -153,9 +153,10 @@ void dump(std::ostream& os, const Profile& profile, const Params& params)
           {
             const Symbol* callSymbol = branchIt->first.symbol;
             const MemoryObject& callObject = *profile.memoryObjects().find(Range(callSymbol->first.start));
+            Address callAddress = callSymbol->first.start - callObject.first.start + callObject.second->baseAddress();
             os << "cob=" << callObject.second->fileName() << '\n';
             os << "cfn=" << callSymbol->second->name() << '\n';
-            os << "calls=1 0x" << std::hex << callSymbol->first.start - callObject.first.start + callObject.second->baseAddress()
+            os << "calls=1 0x" << std::hex << callAddress
                << "0\n0x" << std::hex << entryAddress << " 0 " << std::dec << branchIt->second << '\n';
           }
         }
