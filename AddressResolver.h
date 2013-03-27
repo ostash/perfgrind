@@ -2,6 +2,8 @@
 #define ADDRESSRESOLVER_H
 
 #include "Profile.h"
+
+#include <utility>
 #include <stdint.h>
 
 class AddressResolverPrivate;
@@ -14,6 +16,7 @@ public:
 
   Address baseAddress() const;
   Symbol resolve(Address value, Address loadBase) const;
+  std::pair<const char*, size_t> getSourcePosition(Address value, Address loadBase) const;
 
 private:
   AddressResolver(const AddressResolver&);

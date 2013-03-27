@@ -173,6 +173,9 @@ struct AddressResolverPrivate
   AddressResolverPrivate()
     : baseAddress(0)
     , origBaseAddress(0)
+    , dwfl(0)
+    , dwMod(0)
+    , dwBias(0)
   {}
 
   void loadSymbolsFromSection(Elf* elf, Elf_Scn* section);
@@ -184,13 +187,19 @@ struct AddressResolverPrivate
   uint64_t baseAddress;
   uint64_t origBaseAddress;
 
-//  Dwfl* dwfl_;
-//  Dwfl_Module* dwMod_;
-//  GElf_Addr dwBias_;
+  Dwfl* dwfl;
+  Dwfl_Module* dwMod;
+  GElf_Addr dwBias;
 
   ARSymbolStorage symbols;
 };
 
+static Dwfl_Callbacks callbacks = {
+  dwfl_build_id_find_elf,
+  dwfl_standard_find_debuginfo,
+  dwfl_offline_section_address,
+  0
+};
 
 AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileName, uint64_t objectSize)
   : d(new AddressResolverPrivate)
@@ -215,10 +224,11 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
   if (details != Profile::Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
     d->setOriginalBaseAddress(elfh.get(), elfh.getSection(PrelinkUndo));
 
-  if (elfh.getSection(DebugLink))
+  std::string debugModuleName = fileName;
+  if (details != Profile::Objects && elfh.getSection(DebugLink))
   {
     // Get name
-    std::string debugModuleName = "/usr/lib/debug";
+    debugModuleName = "/usr/lib/debug";
     debugModuleName.append(fileName);
     debugModuleName.append(".debug");
     /// @todo Use debug link
@@ -236,18 +246,21 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
 
   d->constructFakeSymbols(details, objectSize, basename(fileName));
 
-  // Setup dwfl for sources positions fetching
-  //  dwfl_ = dwfl_begin(&callbacks);
-  //  dwMod_ = dwfl_report_offline(dwfl_, "", object.fileName().c_str(), -1);
-  /// @todo What it is bias and how to use it?
+  if (details == Profile::Sources)
+  {
+    // Setup dwfl for sources positions fetching
+    d->dwfl = dwfl_begin(&callbacks);
+    d->dwMod = dwfl_report_offline(d->dwfl, "",debugModuleName.c_str(), -1);
+    dwfl_module_getdwarf(d->dwMod, &d->dwBias);
+  }
 }
 
 AddressResolver::~AddressResolver()
 {
+  if (d->dwfl)
+    dwfl_report_end(d->dwfl, 0, 0);
+  dwfl_end(d->dwfl);
   delete d;
-//  if (dwfl_)
-//    dwfl_report_end(dwfl_, 0, 0);
-//  dwfl_end(dwfl_);
 }
 
 Address AddressResolver::baseAddress() const
@@ -295,6 +308,22 @@ Symbol AddressResolver::resolve(Address value, Address loadBase) const
   }
 
   return Symbol(Range(symStart + adjust, arSymIt->first.end + adjust), symData);
+}
+
+std::pair<const char*, size_t> AddressResolver::getSourcePosition(Address value, Address loadBase) const
+{
+  if (d->dwfl)
+  {
+    Dwfl_Line* line = dwfl_getsrc(d->dwfl, value - loadBase + d->origBaseAddress + d->dwBias);
+    if (line)
+    {
+      int linep = 0;
+      const char* srcFile = dwfl_lineinfo(line, 0, &linep, 0, 0, 0);
+        return std::make_pair(srcFile, linep);
+    }
+  }
+
+  return std::make_pair(static_cast<const char*>(0), 0);
 }
 
 void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
