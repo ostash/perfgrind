@@ -154,13 +154,13 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
   // Set up correct base address
   baseAddress_ = resolver.baseAddress();
   // Perform resolving
-  EntryStorage::const_iterator entryIt = entries_.begin();
+  EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
   {
     const Symbol& symbol = resolver.resolve(entryIt->first, loadBase);
     if (symbol.second == 0)
     {
-      ++entryIt;
+      entries_.erase(entryIt++);
       continue;
     }
 
@@ -176,15 +176,18 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
   // Fixup branches
   // Call "to" address should point to first address of called function,
   // this will allow group them as well
-  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
+  EntryStorage::iterator entryIt = entries_.begin();
+  while (entryIt != entries_.end())
   {
     EntryData& entryData = *(entryIt->second);
     if (entryData.branches().size() == 0)
+    {
+      ++entryIt;
       continue;
+    }
 
+    // Must exist, we drop unresolved entries earlier
     SymbolStorage::const_iterator selfSymIt = symbols_.find(Range(entryIt->first));
-    if (selfSymIt == symbols_.end())
-      continue;
 
     EntryData fixedEntry(entryData.count());
     for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
@@ -201,9 +204,12 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
     }
 
     if (fixedEntry.branches().size() != 0 || entryData.count() != 0)
+    {
       entryData.d->swap(*fixedEntry.d);
+      ++entryIt;
+    }
     else
-      entries_.erase(entryIt--);
+      entries_.erase(entryIt++);
   }
 }
 
