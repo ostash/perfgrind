@@ -169,6 +169,7 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
     const Symbol& symbol = resolver.resolve(entryIt->first, loadBase);
     if (symbol.second == 0)
     {
+      delete entryIt->second;
       entries_.erase(entryIt++);
       continue;
     }
@@ -230,7 +231,10 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
       ++entryIt;
     }
     else
+    {
+      delete entryIt->second;
       entries_.erase(entryIt++);
+    }
   }
 }
 
@@ -264,6 +268,7 @@ class ProfilePrivate
   void processMmapEvent(const pe::mmap_event &event);
   void processSampleEvent(const pe::sample_event &event, Profile::Mode mode);
 
+  void cleanupMemoryObjects();
   void resolveAndFixup(Profile::DetailLevel details);
 
   MemoryObjectStorage memoryObjects;
@@ -348,6 +353,24 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
   }
 }
 
+void ProfilePrivate::cleanupMemoryObjects()
+{
+  // Drop memory objects that don't have any entries
+  MemoryObjectStorage::iterator objIt = memoryObjects.begin();
+  while (objIt != memoryObjects.end())
+  {
+    if (objIt->second->entries().size() == 0)
+    {
+      delete objIt->second;
+      // With C++11 we can just do:
+      // objIt = d->memoryObjects.erase(objIt);
+      memoryObjects.erase(objIt++);
+    }
+    else
+      ++objIt;
+  }
+}
+
 void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
 {
   for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
@@ -382,20 +405,6 @@ void Profile::load(std::istream &is, Mode mode)
     case PERF_RECORD_SAMPLE:
       d->processSampleEvent(event.sample, mode);
     }
-  }
-
-  // Drop memory objects that don't have any entries
-  MemoryObjectStorage::iterator objIt = d->memoryObjects.begin();
-  while (objIt != d->memoryObjects.end())
-  {
-    if (objIt->second->entries().size() == 0)
-    {
-      // With C++11 we can just do:
-      // objIt = d->memoryObjects.erase(objIt);
-      d->memoryObjects.erase(objIt++);
-    }
-    else
-      ++objIt;
   }
 }
 
