@@ -122,7 +122,6 @@ public:
   void resolveAndFixup(DetailLevel details);
 
   const MemoryObjectStorage& memoryObjects() const;
-  MemoryObjectStorage& memoryObjects();
 
 private:
   Profile(const Profile&);

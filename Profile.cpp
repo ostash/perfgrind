@@ -263,9 +263,9 @@ class ProfilePrivate
 {
   friend class Profile;
   ProfilePrivate()
-    : mmapEventCount(0)
-    , goodSamplesCount(0)
-    , badSamplesCount(0)
+    : mmapEventCount_(0)
+    , goodSamplesCount_(0)
+    , badSamplesCount_(0)
   {}
   ~ProfilePrivate();
 
@@ -275,17 +275,17 @@ class ProfilePrivate
   void cleanupMemoryObjects();
   void resolveAndFixup(Profile::DetailLevel details);
 
-  MemoryObjectStorage memoryObjects;
-  StringTable sourceFiles;
+  MemoryObjectStorage memoryObjects_;
+  StringTable sourceFiles_;
 
-  size_t mmapEventCount;
-  size_t goodSamplesCount;
-  size_t badSamplesCount;
+  size_t mmapEventCount_;
+  size_t goodSamplesCount_;
+  size_t badSamplesCount_;
 };
 
 ProfilePrivate::~ProfilePrivate()
 {
-  for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
+  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
     delete objIt->second;
 }
 
@@ -294,7 +294,7 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
 #ifndef NDEBUG
   std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
 #endif
-  memoryObjects.insert(MemoryObject(Range(event.address, event.address + event.length),
+  memoryObjects_.insert(MemoryObject(Range(event.address, event.address + event.length),
                                     new MemoryObjectData(event.fileName)));
 #ifndef NDEBUG
   if (!insRes.second)
@@ -303,31 +303,31 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
               << event.fileName << '\n';
     std::cerr << "Already have another object: " << (insRes.first->first.start) << ' '
               << (insRes.first->first.end) << ' ' << insRes.first->second->fileName() << '\n';
-    for (MemoryObjectStorage::const_iterator it = memoryObjects.begin(); it != memoryObjects.end(); ++it)
+    for (MemoryObjectStorage::const_iterator it = memoryObjects_.begin(); it != memoryObjects_.end(); ++it)
       std::cerr << it->first.start << ' ' << it->first.end << ' ' << it->second->fileName() << '\n';
     std::cerr << std::endl;
   }
 #endif
-  mmapEventCount++;
+  mmapEventCount_++;
 }
 
 void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::Mode mode)
 {
   if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2 || event.callchainSize > PERF_MAX_STACK_DEPTH)
   {
-    badSamplesCount++;
+    badSamplesCount_++;
     return;
   }
 
-  MemoryObjectStorage::iterator objIt = memoryObjects.find(Range(event.ip));
-  if (objIt == memoryObjects.end())
+  MemoryObjectStorage::iterator objIt = memoryObjects_.find(Range(event.ip));
+  if (objIt == memoryObjects_.end())
   {
-    badSamplesCount++;
+    badSamplesCount_++;
     return;
   }
 
   objIt->second->d->appendEntry(event.ip, 1);
-  goodSamplesCount++;
+  goodSamplesCount_++;
 
   if (mode != Profile::CallGraph)
     return;
@@ -347,8 +347,8 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
     if (skipFrame || callFrom == callTo)
       continue;
 
-    objIt = memoryObjects.find(Range(callFrom));
-    if (objIt == memoryObjects.end())
+    objIt = memoryObjects_.find(Range(callFrom));
+    if (objIt == memoryObjects_.end())
       continue;
 
     objIt->second->d->appendBranch(callFrom, callTo, 1);
@@ -360,15 +360,15 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
 void ProfilePrivate::cleanupMemoryObjects()
 {
   // Drop memory objects that don't have any entries
-  MemoryObjectStorage::iterator objIt = memoryObjects.begin();
-  while (objIt != memoryObjects.end())
+  MemoryObjectStorage::iterator objIt = memoryObjects_.begin();
+  while (objIt != memoryObjects_.end())
   {
     if (objIt->second->entries().size() == 0)
     {
       delete objIt->second;
       // With C++11 we can just do:
       // objIt = d->memoryObjects.erase(objIt);
-      memoryObjects.erase(objIt++);
+      memoryObjects_.erase(objIt++);
     }
     else
       ++objIt;
@@ -377,13 +377,13 @@ void ProfilePrivate::cleanupMemoryObjects()
 
 void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
 {
-  for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
+  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
   {
       AddressResolver r(details, objIt->second->d->fileName_.c_str(), objIt->first.end - objIt->first.start);
-      objIt->second->d->resolveEntries(r, objIt->first.start, details == Profile::Sources? &sourceFiles : 0);
+      objIt->second->d->resolveEntries(r, objIt->first.start, details == Profile::Sources? &sourceFiles_ : 0);
   }
-  for (MemoryObjectStorage::iterator objIt = memoryObjects.begin(); objIt != memoryObjects.end(); ++objIt)
-    objIt->second->d->fixupBranches(memoryObjects);
+  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
+    objIt->second->d->fixupBranches(memoryObjects_);
 }
 
 // Profile methods
@@ -412,29 +412,12 @@ void Profile::load(std::istream &is, Mode mode)
   }
 }
 
-size_t Profile::mmapEventCount() const
-{
-  return d->mmapEventCount;
-}
+size_t Profile::mmapEventCount() const { return d->mmapEventCount_; }
 
-size_t Profile::goodSamplesCount() const
-{
-  return d->goodSamplesCount;
-}
+size_t Profile::goodSamplesCount() const { return d->goodSamplesCount_; }
 
-size_t Profile::badSamplesCount() const
-{
-  return d->badSamplesCount;
-}
+size_t Profile::badSamplesCount() const { return d->badSamplesCount_; }
 
 void Profile::resolveAndFixup(DetailLevel details) { d->resolveAndFixup(details); }
 
-const MemoryObjectStorage& Profile::memoryObjects() const
-{
-  return d->memoryObjects;
-}
-
-MemoryObjectStorage& Profile::memoryObjects()
-{
-  return d->memoryObjects;
-}
+const MemoryObjectStorage& Profile::memoryObjects() const { return d->memoryObjects_; }
