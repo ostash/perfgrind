@@ -15,7 +15,7 @@ public:
   ~AddressResolver();
 
   Address baseAddress() const;
-  Symbol resolve(Address value, Address loadBase) const;
+  bool resolve(Address value, Address loadBase, Range& symbolRange, std::string& symbolName) const;
   std::pair<const char*, size_t> getSourcePosition(Address value, Address loadBase) const;
 
 private:

@@ -275,7 +275,7 @@ static std::string constructSymbolName(uint64_t address)
   return ss.str();
 }
 
-Symbol AddressResolver::resolve(Address value, Address loadBase) const
+bool AddressResolver::resolve(Address value, Address loadBase, Range& symbolRange, std::string& symbolName) const
 {
   uint64_t adjust = loadBase - d->baseAddress;
   ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(value - adjust));
@@ -286,28 +286,28 @@ Symbol AddressResolver::resolve(Address value, Address loadBase) const
             << ", load base: " << loadBase << std::dec << '\n';
 #endif
 
-    return Symbol(Range(0, 0), 0);
+    return false;
   }
 
-  const Address& symStart = arSymIt->first.start;
-  SymbolData* symData;
+  symbolRange.start = arSymIt->first.start + adjust;
+  symbolRange.end = arSymIt->first.end + adjust;
 
   const std::string& maybeSymbolName = arSymIt->second.name;
   if (maybeSymbolName.empty())
-    symData = new SymbolData(constructSymbolName(symStart));
+    symbolName = constructSymbolName(symbolRange.start);
   else
   {
     char* demangledName = __cxxabiv1::__cxa_demangle(maybeSymbolName.c_str(), 0, 0, 0);
     if (demangledName)
     {
-      symData = new SymbolData(demangledName);
+      symbolName = demangledName;
       free(demangledName);
     }
     else
-      symData = new SymbolData(maybeSymbolName);
+      symbolName = maybeSymbolName;
   }
 
-  return Symbol(Range(symStart + adjust, arSymIt->first.end + adjust), symData);
+  return true;
 }
 
 std::pair<const char*, size_t> AddressResolver::getSourcePosition(Address value, Address loadBase) const

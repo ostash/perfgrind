@@ -11,6 +11,7 @@ typedef uint64_t Size;
 
 struct Range
 {
+  Range() {}
   Range(uint64_t _start, uint64_t _end)
     : start(_start)
     , end(_end)
@@ -28,15 +29,21 @@ struct Range
   uint64_t end;
 };
 
+class SymbolDataPrivate;
 class SymbolData
 {
 public:
-  SymbolData(const std::string& name)
-    : name_(name)
-  {}
-  const std::string& name() const { return name_; }
+  const std::string& name() const;
+  const std::string& sourceFile() const;
+  size_t sourceLine() const;
 private:
-  std::string name_;
+  friend class MemoryObjectDataPrivate;
+  SymbolData(const SymbolData&);
+  SymbolData& operator=(const SymbolData&);
+
+  SymbolData();
+  ~SymbolData();
+  SymbolDataPrivate* d;
 };
 
 typedef std::map<Range, SymbolData*> SymbolStorage;

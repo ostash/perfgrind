@@ -62,6 +62,34 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 typedef std::tr1::unordered_set<std::string> StringTable;
 
+// SymbolDataPrivate methods
+class SymbolDataPrivate
+{
+  friend class SymbolData;
+  friend class MemoryObjectDataPrivate;
+  SymbolDataPrivate()
+    : sourceFile_(&unknownFile)
+    , sourceLine_(0)
+  {}
+  std::string name_;
+  const std::string* sourceFile_;
+  size_t sourceLine_;
+};
+
+// SymbolData methods
+
+const std::string& SymbolData::name() const { return d->name_; }
+
+const std::string& SymbolData::sourceFile() const { return *d->sourceFile_; }
+
+size_t SymbolData::sourceLine() const { return d->sourceLine_; }
+
+SymbolData::SymbolData()
+  : d(new SymbolDataPrivate)
+{}
+
+SymbolData::~SymbolData() { delete d; }
+
 // EntryDataPrivate methods
 
 class EntryDataPrivate
@@ -162,7 +190,8 @@ void MemoryObjectDataPrivate::appendBranch(Address from, Address to, Count count
   appendEntry(from, 0).d->appendBranch(to, count);
 }
 
-void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase, StringTable *sourceFiles)
+void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase,
+                                             StringTable *sourceFiles)
 {
   // Set up correct base address
   baseAddress_ = resolver.baseAddress();
@@ -170,15 +199,29 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
   EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
   {
-    const Symbol& symbol = resolver.resolve(entryIt->first, loadBase);
-    if (symbol.second == 0)
+    Range symbolRange;
+    SymbolData* symbolData = new SymbolData();
+
+    if (resolver.resolve(entryIt->first, loadBase, symbolRange, symbolData->d->name_))
     {
+      if (sourceFiles)
+      {
+        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(symbolRange.start, loadBase);
+        if (pos.first)
+        {
+          symbolData->d->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
+          symbolData->d->sourceLine_ = pos.second;
+        }
+      }
+      symbols_.insert(Symbol(symbolRange, symbolData));
+    }
+    else
+    {
+      delete symbolData;
       delete entryIt->second;
       entries_.erase(entryIt++);
       continue;
     }
-
-    symbols_.insert(symbol);
 
     do
     {
@@ -193,7 +236,7 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
       }
       ++entryIt;
     }
-    while (entryIt != entries_.end() && entryIt->first < symbol.first.end);
+    while (entryIt != entries_.end() && entryIt->first < symbolRange.end);
   }
 }
 
