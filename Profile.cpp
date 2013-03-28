@@ -410,6 +410,8 @@ void Profile::load(std::istream &is, Mode mode)
       d->processSampleEvent(event.sample, mode);
     }
   }
+
+  d->cleanupMemoryObjects();
 }
 
 size_t Profile::mmapEventCount() const { return d->mmapEventCount_; }
