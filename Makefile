@@ -1,12 +1,9 @@
 -include site.mak
 
-all: pgcollect pgreport pginfo pgconvert
+all: pgcollect pginfo pgconvert
 
 pgcollect: pgcollect.c
 	gcc -std=gnu99 -Wall -g -D_GNU_SOURCE -o pgcollect pgcollect.c ${FLAGS}
-
-pgreport: pgreport.cpp
-	g++ -Wall -g -o pgreport pgreport.cpp ${FLAGS} -ldw
 
 libpg.so: Profile.h Profile.cpp AddressResolver.h AddressResolver.cpp
 	g++ -Wall -g -fPIC --shared -o libpg.so Profile.cpp AddressResolver.cpp ${FLAGS} -ldw

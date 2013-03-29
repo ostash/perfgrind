@@ -14,5 +14,5 @@ FLAGS=-I/usr/local/elfutils/include -L/usr/local/elfutils/lib -O2 -march=native 
 
 Usage:
 - collect samples using 'pgcollect'
-- convert collected samples into 'callgrind' file using 'pgreport'
-- open resulting 'callgrind' file in KCacheGrind
+- convert collected samples into 'callgrind' file using 'pgconvert'
+- open resulting 'callgrind' file in KCachegrind
