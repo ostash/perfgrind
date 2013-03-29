@@ -24,7 +24,7 @@ struct Params
   const char* inputFile;
 };
 
-void parseArguments(Params& params, int argc, char* argv[])
+static void parseArguments(Params& params, int argc, char* argv[])
 {
   if (argc < 2)
   {
@@ -90,7 +90,7 @@ void parseArguments(Params& params, int argc, char* argv[])
   }
 }
 
-void dumpCallTo(std::ostream& os, const MemoryObjectData& callObjectData, const SymbolData& callSymbolData)
+static void dumpCallTo(std::ostream& os, const MemoryObjectData& callObjectData, const SymbolData& callSymbolData)
 {
   os << "cob=" << callObjectData.fileName()
      << "\ncfi=" << callSymbolData.sourceFile()
@@ -124,7 +124,7 @@ struct EntryGroupper
   }
 };
 
-void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectStorage& objects,
+static void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectStorage& objects,
                                     const std::string* fileName,
                                     EntryStorage::const_iterator entryFirst,
                                     EntryStorage::const_iterator entryLast)
@@ -180,7 +180,7 @@ void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectStorage&
   }
 }
 
-void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStorage& objects,
+static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStorage& objects,
                                  const std::string* fileName,
                                  int64_t addressAdjust,
                                  EntryStorage::const_iterator entryFirst,
@@ -215,7 +215,7 @@ void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStorage& ob
   }
 }
 
-void dump(std::ostream& os, const Profile& profile, bool dumpInstructions)
+static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions)
 {
   os << "positions:";
   if (dumpInstructions)
