@@ -102,9 +102,6 @@ class EntryDataPrivate
     , sourceLine_(0)
   {}
 
-  void addCount(Count count) { count_ += count; }
-  void appendBranch(BranchTo branchTo, Count count = 1);
-
   void swap(EntryDataPrivate& other)
   {
     std::swap(count_, other.count_);
@@ -116,15 +113,6 @@ class EntryDataPrivate
   const std::string* sourceFile_;
   size_t sourceLine_;
 };
-
-void EntryDataPrivate::appendBranch(BranchTo branchTo, Count count)
-{
-  BranchStorage::iterator branchIt = branches_.find(branchTo);
-  if (branchIt == branches_.end())
-    branches_.insert(Branch(branchTo, count));
-  else
-    branchIt->second += count;
-}
 
 // EntryData methods
 Count EntryData::count() const { return d->count_; }
@@ -155,7 +143,7 @@ class MemoryObjectDataPrivate
 
   void setBaseAddress(Address value) { baseAddress_ = value; }
   EntryData &appendEntry(Address address, Count count);
-  void appendBranch(Address from, Address to, Count count);
+  void appendBranch(Address from, Address to);
 
   void resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles);
   void fixupBranches(const MemoryObjectStorage &objects);
@@ -174,20 +162,18 @@ MemoryObjectDataPrivate::~MemoryObjectDataPrivate()
 
 EntryData& MemoryObjectDataPrivate::appendEntry(Address address, Count count)
 {
-  // For C++11 we will need upper bound
-  EntryStorage::iterator entryIt = entries_.lower_bound(address);
-  entryIt = entries_.insert(entryIt, Entry(address, 0));
-  if (entryIt->second != 0)
-    entryIt->second->d->addCount(count);
+  EntryData*& entryData = entries_[address];
+  if (!entryData)
+    entryData = new EntryData(count);
   else
-    entryIt->second = new EntryData(count);
+    entryData->d->count_ += count;
 
-  return *(entryIt->second);
+  return *entryData;
 }
 
-void MemoryObjectDataPrivate::appendBranch(Address from, Address to, Count count)
+void MemoryObjectDataPrivate::appendBranch(Address from, Address to)
 {
-  appendEntry(from, 0).d->appendBranch(to, count);
+  appendEntry(from, 0).d->branches_[to]++;
 }
 
 void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase,
@@ -263,12 +249,12 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
          ++branchIt)
     {
       const Address& branchAddress = branchIt->first.address;
-      const MemoryObjectData* callObjectData = objects.find(Range(branchAddress))->second;
+      const MemoryObjectData* callObjectData = objects.at(Range(branchAddress));
       SymbolStorage::const_iterator callSymbolIt = callObjectData->d->symbols_.find(Range(branchAddress));
       if (callSymbolIt != callObjectData->symbols().end())
       {
         if (callObjectData->d != this || callSymbolIt != selfSymIt)
-          fixedEntry.d->appendBranch(&(*callSymbolIt), branchIt->second);
+          fixedEntry.d->branches_[&(*callSymbolIt)] += branchIt->second;
       }
     }
 
@@ -394,7 +380,7 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
     if (objIt == memoryObjects_.end())
       continue;
 
-    objIt->second->d->appendBranch(callFrom, callTo, 1);
+    objIt->second->d->appendBranch(callFrom, callTo);
 
     callTo = callFrom;
   }
