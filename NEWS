@@ -1,0 +1,19 @@
+perfgrind 0.2
+
+* New completely rewritten converter pgconvert, old pgreport is removed.
+* Flat/callgraph profiles are supported.
+* Different levels of details are supported: object, symbol, source.
+* Instruction dumping is supported.
+* Resulting 'callgrind' files are much smaller now, thanks to grouping hits
+  by object/symbol/source file/source line.
+* pginfo utility for getting some stats about dump file.
+
+perfgrind 0.1
+
+* Inital release.
+* pgcollect records samples for PERF_COUNT_HW_CPU_CYCLES events in userspace
+  only at frequency 1000. Attaching to existing process and spawning new process
+  are supported.
+* pgreport converts collected samples to 'callgrind' format. Only callgraphs are
+  supported, detalization is always 'source file/line' (when debug information
+  is available), instruction dumping is not implemented.
