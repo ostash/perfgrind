@@ -23,10 +23,11 @@ static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu, int
 
 struct PGCollectState
 {
-  size_t taskCount;
   pid_t* pids;
-  int gogoFD;
   FILE* output;
+  size_t taskCount;
+  unsigned frequency;
+  int gogoFD;
   unsigned wakeupCount;
   unsigned sampleCount;
   unsigned mmapCount;
@@ -148,25 +149,43 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 {
   if (argc < 3)
   {
-    fprintf(stdout, "Usage: %s outfile.pgdata {-p pid | cmd}\n", program_invocation_short_name);
+    fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | cmd}\n", program_invocation_short_name);
     exit(EXIT_SUCCESS);
   }
 
+  state->frequency = 1000;
   state->wakeupCount = 0;
   state->sampleCount = 0;
   state->mmapCount = 0;
   state->synthMmapCount = 0;
 
-  state->output = fopen(argv[1], "w");
+  argv++; argc--;
+  state->output = fopen(*argv, "w");
   if (!state->output)
   {
-    fprintf(stderr, "Can't create output file %s: %s\n", argv[0], strerror(errno));
+    fprintf(stderr, "Can't create output file %s: %s\n", *argv, strerror(errno));
     exit(EXIT_FAILURE);
   }
 
-  if (strcmp(argv[2], "-p") == 0)
+  argv++; argc--;
+  if (strcmp(*argv, "-F") == 0)
   {
-    if (argc != 4)
+    argv++; argc--;
+    if (argc > 1)
+      state->frequency = strtoul(*argv, NULL, 10);
+    else
+    {
+      fprintf(stderr, "Frequency required for -F\n");
+      exit(EXIT_FAILURE);
+    }
+  }
+  fprintf(stdout, "Setting frequency to %u\n", state->frequency);
+
+  argv++; argc--;
+  if (strcmp(*argv, "-p") == 0)
+  {
+    argv++; argc--;
+    if (argc < 1)
     {
       fprintf(stderr, "PID required for -p\n");
       exit(EXIT_FAILURE);
@@ -176,10 +195,10 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     char* endptr;
     state->gogoFD = -1;
 
-    pid_t pid = strtoll(argv[3], &endptr, 10);
+    pid_t pid = strtoll(*argv, &endptr, 10);
     if (errno != 0 || *endptr != 0)
     {
-      fprintf(stderr, "Bad PID '%s' or process doesn't exist: %s\n", argv[3], strerror(errno));
+      fprintf(stderr, "Bad PID '%s' or process doesn't exist: %s\n", *argv, strerror(errno));
       exit(EXIT_FAILURE);
     }
     else
@@ -229,7 +248,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 
       if (start)
       {
-        execvp(argv[2], argv + 2);
+        execvp(*argv, argv);
         perror("Can't exec new process");
       }
 
@@ -252,7 +271,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
       close(childReadiness[0]);
 
       fprintf(stdout, "Going to profile process with PID %lld:", (long long)state->pids[0]);
-      for (int i = 2; i < argc; i++)
+      for (int i = 0; i < argc; i++)
         fprintf(stdout, " %s", argv[i]);
       fputc('\n', stdout);
     }
@@ -271,7 +290,7 @@ static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cp
   pe_attr.size = sizeof(struct perf_event_attr);
   pe_attr.config = PERF_COUNT_HW_CPU_CYCLES;
 //  pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
-  pe_attr.sample_freq = 1000;
+  pe_attr.sample_freq = state->frequency;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
   pe_attr.disabled = forkMode;
   pe_attr.inherit = forkMode;
