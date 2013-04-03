@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <getopt.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -145,68 +146,66 @@ static void collectExistingMappings(struct PGCollectState* state)
   fclose(mapFile);
 }
 
+
+static void __attribute__((noreturn))
+printUsage()
+{
+  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | cmd}\n", program_invocation_short_name);
+  exit(EXIT_SUCCESS);
+}
+
 static void prepareState(struct PGCollectState* state, int argc, char** argv)
 {
-  if (argc < 3)
-  {
-    fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | cmd}\n", program_invocation_short_name);
-    exit(EXIT_SUCCESS);
-  }
-
   state->frequency = 1000;
   state->wakeupCount = 0;
   state->sampleCount = 0;
   state->mmapCount = 0;
   state->synthMmapCount = 0;
 
-  argv++; argc--;
-  state->output = fopen(*argv, "w");
+  int opt;
+  pid_t pid = 0;
+  while ((opt = getopt(argc, argv, "F:p:")) != -1)
+  {
+    switch (opt)
+    {
+    case 'F':
+      state->frequency = strtoul(optarg, NULL, 10);
+      break;
+    case 'p': {
+      state->gogoFD = -1;
+      errno = 0;
+      char* endptr;
+      pid = strtoll(optarg, &endptr, 10);
+      if (errno != 0 || *endptr != 0)
+      {
+        fprintf(stderr, "Bad PID '%s': %s\n", optarg, strerror(errno));
+        exit(EXIT_FAILURE);
+      }}
+      break;
+    default:
+      printUsage();
+    }
+  }
+
+  // We still need output file and command to run for non-pid mode
+  if (argc - optind < (state->gogoFD == -1 ? 1 : 2))
+    printUsage();
+
+  state->output = fopen(argv[optind], "w");
   if (!state->output)
   {
     fprintf(stderr, "Can't create output file %s: %s\n", *argv, strerror(errno));
     exit(EXIT_FAILURE);
   }
+  ++optind;
 
-  argv++; argc--;
-  if (strcmp(*argv, "-F") == 0)
-  {
-    argv++; argc--;
-    if (argc > 1)
-      state->frequency = strtoul(*argv, NULL, 10);
-    else
-    {
-      fprintf(stderr, "Frequency required for -F\n");
-      exit(EXIT_FAILURE);
-    }
-  }
   fprintf(stdout, "Setting frequency to %u\n", state->frequency);
 
-  argv++; argc--;
-  if (strcmp(*argv, "-p") == 0)
+  if (state->gogoFD == -1)
   {
-    argv++; argc--;
-    if (argc < 1)
-    {
-      fprintf(stderr, "PID required for -p\n");
-      exit(EXIT_FAILURE);
-    }
-
-    errno = 0;
-    char* endptr;
-    state->gogoFD = -1;
-
-    pid_t pid = strtoll(*argv, &endptr, 10);
-    if (errno != 0 || *endptr != 0)
-    {
-      fprintf(stderr, "Bad PID '%s' or process doesn't exist: %s\n", *argv, strerror(errno));
-      exit(EXIT_FAILURE);
-    }
-    else
-    {
-      fprintf(stdout, "Going to profile process with PID %lld\n", (long long)pid);
-      collectTasks(state, pid);
-      collectExistingMappings(state);
-    }
+    fprintf(stdout, "Going to profile process with PID %lld\n", (long long)pid);
+    collectTasks(state, pid);
+    collectExistingMappings(state);
   }
   else
   {
@@ -248,7 +247,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 
       if (start)
       {
-        execvp(*argv, argv);
+        execvp(argv[optind], argv + optind);
         perror("Can't exec new process");
       }
 
@@ -270,9 +269,9 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
       }
       close(childReadiness[0]);
 
-      fprintf(stdout, "Going to profile process with PID %lld:", (long long)state->pids[0]);
-      for (int i = 0; i < argc; i++)
-        fprintf(stdout, " %s", argv[i]);
+      fprintf(stdout, "Going to profile process with PID %lld: ", (long long)state->pids[0]);
+      while (optind < argc)
+        fprintf(stdout, "%s ", argv[optind++]);
       fputc('\n', stdout);
     }
   }
