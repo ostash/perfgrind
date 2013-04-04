@@ -6,9 +6,6 @@ Short and incomplete TODO list:
 
 - use debug link section in ELF for finding separate debug info.
 
-- handle hits in PLT. At the moment they are usually reported as hits in
-  _init@object function.
-
 - detect correct call from addresses. Currently we put cumulative count to
   instruction next after call.
 
