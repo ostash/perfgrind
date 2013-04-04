@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <getopt.h>
 
 struct Params
 {
@@ -24,70 +25,61 @@ struct Params
   const char* inputFile;
 };
 
+static void __attribute__((noreturn))
+printUsage()
+{
+  std::cout << "Usage: " << program_invocation_short_name <<
+               " [-m {flat|callgraph}] [-d {object|symbol|source}] [-i] filename.pgdata\n";
+  exit(EXIT_SUCCESS);
+}
+
 static void parseArguments(Params& params, int argc, char* argv[])
 {
-  if (argc < 2)
+  int opt;
+  while ((opt = getopt(argc, argv, "m:d:i")) != -1)
   {
-    std::cout << "Usage: " << program_invocation_short_name <<
-                 " [-m {flat|callgraph}] [-d {object|symbol|source}] [-i] filename.pgdata\n";
-    exit(EXIT_SUCCESS);
-  }
-
-  int nextArgType = 0;
-  for (argv++; *argv; argv++)
-  {
-    char* argp = *argv;
-    switch(nextArgType)
+    switch (opt)
     {
-    case 0:
-      if (strcmp(argp, "-m") == 0)
-        nextArgType = 1;
-      else if (strcmp(argp, "-d") == 0)
-        nextArgType = 2;
-      else if (strcmp(argp, "-i") == 0)
-        params.dumpInstructions = true;
-      else
-        params.inputFile = argp;
-      break;
-    case 1:
-      // mode
-      nextArgType = 0;
-      if (strcmp(argp, "flat") == 0)
+    case 'm':
+      if (strcmp(optarg, "flat") == 0)
         params.mode = Profile::Flat;
-      else if (strcmp(argp, "callgraph") == 0)
+      else if (strcmp(optarg, "callgraph") == 0)
         params.mode = Profile::CallGraph;
       else
       {
-        std::cerr << "Invalid mode '" << argp <<"'\n";
+        std::cerr << "Invalid mode '" << optarg <<"'\n";
         exit(EXIT_FAILURE);
       }
       break;
-    case 2:
-      // detail
-      nextArgType = 0;
-      if (strcmp(argp, "object") == 0)
+    case 'd':
+      if (strcmp(optarg, "object") == 0)
         params.details = Profile::Objects;
-      else if (strcmp(argp, "symbol") == 0)
+      else if (strcmp(optarg, "symbol") == 0)
         params.details = Profile::Symbols;
-      else if (strcmp(argp, "source") == 0)
+      else if (strcmp(optarg, "source") == 0)
         params.details = Profile::Sources;
       else
       {
-        std::cerr << "Invalid details level '" << argp <<"'\n";
+        std::cerr << "Invalid details level '" << optarg <<"'\n";
         exit(EXIT_FAILURE);
       }
+      break;
+    case 'i':
+      params.dumpInstructions = true;
+      break;
+    default:
+      printUsage();
     }
   }
+
+  if (optind >= argc)
+    printUsage();
+  else
+    params.inputFile = argv[optind];
 
   // It is not possible to use callgraphs with objects only
   if (params.details == Profile::Objects)
     params.mode = Profile::Flat;
-
-  if (!params.inputFile)
-  {
-    std::cerr << "Not input file given\n";
-    exit(EXIT_FAILURE);
-  }
 }
 
 static void dumpCallTo(std::ostream& os, const MemoryObjectData& callObjectData, const SymbolData& callSymbolData)
@@ -270,7 +262,7 @@ int main(int argc, char** argv)
   std::fstream input(params.inputFile, std::ios_base::in);
   if (!input)
   {
-    std::cerr << "Error reading input file " << argv[1] << '\n';
+    std::cerr << "Error reading input file " << params.inputFile << '\n';
     exit(EXIT_FAILURE);
   }
 
