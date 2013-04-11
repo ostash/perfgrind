@@ -23,6 +23,7 @@ enum Section {
   PrelinkUndo,
   PLT,
   RelPLT,
+  RelAPLT,
   SectionCount
 };
 
@@ -156,11 +157,18 @@ void ElfHolder::loadInfo()
       }
       break;
     case SHT_REL:
-    case SHT_RELA:
       sectionName = elf_strptr(elf_, ehdr.e_shstrndx, shdr.sh_name);
-      if (strcmp(sectionName, ".rel.plt") == 0 || strcmp(sectionName, "rela.plt"))
+      if (strcmp(sectionName, ".rel.plt") == 0)
       {
         sections_[RelPLT] = scn;
+        needToFind--;
+      }
+      break;
+    case SHT_RELA:
+      sectionName = elf_strptr(elf_, ehdr.e_shstrndx, shdr.sh_name);
+      if (strcmp(sectionName, "rela.plt"))
+      {
+        sections_[RelAPLT] = scn;
         needToFind--;
       }
       break;
@@ -231,8 +239,13 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
   ElfHolder elfh(fileName);
   d->origBaseAddress = d->baseAddress = elfh.getBaseAddress();
 
-  if (details != Profile::Objects && elfh.getSection(PLT) && elfh.getSection(RelPLT) && elfh.getSection(DynSym))
-    d->loadPLTSymbols(elfh.get(), elfh.getSection(PLT), elfh.getSection(RelPLT), elfh.getSection(DynSym));
+  if (details != Profile::Objects && elfh.getSection(PLT) && elfh.getSection(DynSym))
+  {
+    if (elfh.getSection(RelPLT))
+      d->loadPLTSymbols(elfh.get(), elfh.getSection(PLT), elfh.getSection(RelPLT), elfh.getSection(DynSym));
+    if (elfh.getSection(RelAPLT))
+      d->loadPLTSymbols(elfh.get(), elfh.getSection(PLT), elfh.getSection(RelAPLT), elfh.getSection(DynSym));
+  }
 
   // Don't load symbols if not requested
   bool symTabLoaded = (details == Profile::Objects);
