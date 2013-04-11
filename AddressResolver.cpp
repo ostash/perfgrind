@@ -2,18 +2,19 @@
 
 #include <algorithm>
 #include <map>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 #include <sstream>
 #include <cstring>
 
 #include <cxxabi.h>
 
-#include <fcntl.h>
-
 #include <elfutils/libdwfl.h>
 
-#ifndef NDEBUG
-#include <iostream>
-#endif
+#include <fcntl.h>
+#include <unistd.h>
+
 
 enum Section {
   SymTab = 0,
