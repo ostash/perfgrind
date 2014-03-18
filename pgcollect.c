@@ -150,7 +150,7 @@ static void collectExistingMappings(struct PGCollectState* state)
 static void __attribute__((noreturn))
 printUsage()
 {
-  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | cmd}\n", program_invocation_short_name);
+  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | [--] cmd}\n", program_invocation_short_name);
   exit(EXIT_SUCCESS);
 }
 
