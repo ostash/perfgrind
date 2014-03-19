@@ -292,7 +292,7 @@ static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cp
   pe_attr.sample_freq = state->frequency;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
   pe_attr.disabled = forkMode;
-  pe_attr.inherit = forkMode;
+  pe_attr.inherit = 1;
   pe_attr.exclude_kernel = 1;
   pe_attr.exclude_hv = 1;
   pe_attr.mmap = 1;
@@ -415,29 +415,22 @@ int main(int argc, char** argv)
   struct PGCollectState state;
   prepareState(&state, argc, argv);
 
-  int eventFdCount = 0;
-  // In fork mode we open one fd per cpu
-  // In follow mode we open one fd per task
-  if (state.gogoFD != -1)
-    eventFdCount = sysconf(_SC_NPROCESSORS_ONLN);
-  else
-    eventFdCount = state.taskCount;
+  long cpuCount = sysconf(_SC_NPROCESSORS_CONF);
+  size_t eventFdCount = state.taskCount * cpuCount;
 
   int perfEventFD[eventFdCount];
   struct PerfMmapArea perfEventArea[eventFdCount];
   struct pollfd pollData[eventFdCount];
 
-  if (state.gogoFD != -1)
-    for (int cpu = 0; cpu < eventFdCount; cpu++)
-      perfEventFD[cpu] = createPerfEvent(&state, state.pids[0], cpu);
-  else
-    for (int pidId = 0; pidId < eventFdCount; pidId++)
-      perfEventFD[pidId] = createPerfEvent(&state, state.pids[pidId], -1);
-
-  for (int eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
+  for (int cpu = 0; cpu < cpuCount; cpu++)
   {
-    mmapPerfEvent(&perfEventArea[eventFdIdx], perfEventFD[eventFdIdx], &state);
-    fillPollData(&pollData[eventFdIdx], perfEventFD[eventFdIdx]);
+    for (int pidId = 0; pidId < state.taskCount; pidId++)
+    {
+      const size_t eventFdIdx = cpu * state.taskCount + pidId;
+      perfEventFD[eventFdIdx] = createPerfEvent(&state, state.pids[pidId], cpu);
+      mmapPerfEvent(&perfEventArea[eventFdIdx], perfEventFD[eventFdIdx], &state);
+      fillPollData(&pollData[eventFdIdx], perfEventFD[eventFdIdx]);
+    }
   }
 
   setupSignalHandlers(signalHandler);
@@ -447,7 +440,7 @@ int main(int argc, char** argv)
 
   while (1)
   {
-    for (int eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
+    for (size_t eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
       processEvents(&perfEventArea[eventFdIdx], &state);
 
     if (stopCollecting)
