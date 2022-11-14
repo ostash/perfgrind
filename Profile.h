@@ -103,7 +103,7 @@ private:
   MemoryObjectData(const MemoryObjectData&);
   MemoryObjectData& operator=(const MemoryObjectData&);
 
-  explicit MemoryObjectData(const char* fileName);
+  MemoryObjectData(const char* fileName, Size pageOffset);
   ~MemoryObjectData();
   MemoryObjectDataPrivate* d;
 };

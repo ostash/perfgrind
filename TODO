@@ -2,8 +2,6 @@ Short and incomplete TODO list:
 
 - handle overlapping memory objects.
 
-- handle pgoff in mmap events.
-
 - use debug link section in ELF for finding separate debug info.
 
 - detect correct call from addresses. Currently we put cumulative count to
