@@ -27,7 +27,6 @@ struct mmap_event
   __u32 tid;
   __u64 address;
   __u64 length;
-  /// @todo Determine how to handle pgoff
   __u64 pageOffset;
   char fileName[PATH_MAX];
 };
@@ -135,8 +134,9 @@ class MemoryObjectDataPrivate
 {
   friend class MemoryObjectData;
   friend class ProfilePrivate;
-  MemoryObjectDataPrivate(const char* fileName)
+  MemoryObjectDataPrivate(const char* fileName, Size pageOffset)
     : baseAddress_(0)
+    , pageOffset_(pageOffset)
     , fileName_(fileName)
   {}
   ~MemoryObjectDataPrivate();
@@ -149,6 +149,7 @@ class MemoryObjectDataPrivate
   void fixupBranches(const MemoryObjectStorage &objects);
 
   Address baseAddress_;
+  Size pageOffset_;
   EntryStorage entries_;
   SymbolStorage symbols_;
   std::string fileName_;
@@ -181,6 +182,8 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
 {
   // Set up correct base address
   baseAddress_ = resolver.baseAddress();
+  // Take mmap page offset into consideration
+  loadBase -= pageOffset_;
   // Perform resolving
   EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
@@ -281,8 +284,8 @@ const EntryStorage& MemoryObjectData::entries() const { return d->entries_; }
 
 const SymbolStorage& MemoryObjectData::symbols() const { return d->symbols_; }
 
-MemoryObjectData::MemoryObjectData(const char *fileName)
-  : d(new MemoryObjectDataPrivate(fileName))
+MemoryObjectData::MemoryObjectData(const char *fileName, Size pageOffset)
+  : d(new MemoryObjectDataPrivate(fileName, pageOffset))
 {}
 
 MemoryObjectData::~MemoryObjectData() { delete d; }
@@ -324,7 +327,7 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
   std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
 #endif
   memoryObjects_.insert(MemoryObject(Range(event.address, event.address + event.length),
-                                    new MemoryObjectData(event.fileName)));
+                                    new MemoryObjectData(event.fileName, event.pageOffset)));
 #ifndef NDEBUG
   if (!insRes.second)
   {
