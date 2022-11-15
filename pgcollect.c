@@ -29,6 +29,7 @@ struct PGCollectState
   size_t taskCount;
   unsigned frequency;
   int gogoFD;
+  int useSwEvents;
   unsigned wakeupCount;
   unsigned sampleCount;
   unsigned mmapCount;
@@ -150,7 +151,7 @@ static void collectExistingMappings(struct PGCollectState* state)
 static void __attribute__((noreturn))
 printUsage()
 {
-  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] {-p pid | [--] cmd}\n", program_invocation_short_name);
+  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] [-s] {-p pid | [--] cmd}\n", program_invocation_short_name);
   exit(EXIT_SUCCESS);
 }
 
@@ -164,7 +165,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 
   int opt;
   pid_t pid = 0;
-  while ((opt = getopt(argc, argv, "F:p:")) != -1)
+  while ((opt = getopt(argc, argv, "F:p:s")) != -1)
   {
     switch (opt)
     {
@@ -181,6 +182,9 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
         fprintf(stderr, "Bad PID '%s': %s\n", optarg, strerror(errno));
         exit(EXIT_FAILURE);
       }}
+      break;
+    case 's':
+      state->useSwEvents = 1;
       break;
     default:
       printUsage();
@@ -284,11 +288,14 @@ static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cp
 
   bool forkMode = (state->gogoFD != -1);
 
-  pe_attr.type = PERF_TYPE_HARDWARE;
-//  pe_attr.type = PERF_TYPE_SOFTWARE;
   pe_attr.size = sizeof(struct perf_event_attr);
-  pe_attr.config = PERF_COUNT_HW_CPU_CYCLES;
-//  pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
+  if (state->useSwEvents) {
+    pe_attr.type = PERF_TYPE_SOFTWARE;
+    pe_attr.config = PERF_COUNT_SW_CPU_CLOCK;
+  } else {
+    pe_attr.type = PERF_TYPE_HARDWARE;
+    pe_attr.config = PERF_COUNT_HW_CPU_CYCLES;
+  }
   pe_attr.sample_freq = state->frequency;
   pe_attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_CALLCHAIN;
   pe_attr.disabled = forkMode;
@@ -310,6 +317,9 @@ static int createPerfEvent(const struct PGCollectState* state, pid_t pid, int cp
     perror("Can't create performance event file descriptor");
     if (state->gogoFD != -1)
       close(state->gogoFD);
+    fputs("\nHint: check /proc/sys/kernel/perf_event_paranoid", stderr);
+    if (!state->useSwEvents)
+      fputs("Hint: possibly retry using software events (option -s)", stderr);
     exit(EXIT_FAILURE);
   }
 
