@@ -124,7 +124,7 @@ static void collectExistingMappings(struct PGCollectState* state)
     char prot[5];
     event.filename[0] = 0;
     // 08048000-08053000 r-xp 00000000 08:03 390746 /bin/cat
-    sscanf(buf, "%"PRIx64"-%"PRIx64" %s %"PRIx64" %*x:%*x %*u %s\n", &event.addr, &event.len, prot, &event.pgoff,
+    sscanf(buf, "%llx-%llx %s %llx %*x:%*x %*u %s\n", &event.addr, &event.len, prot, &event.pgoff,
            event.filename);
 
     if (prot[2] != 'x')
