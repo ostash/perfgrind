@@ -196,8 +196,9 @@ struct ARSymbolData
 typedef std::map<Range, ARSymbolData> ARSymbolStorage;
 typedef ARSymbolStorage::value_type ARSymbol;
 
-struct AddressResolverPrivate
+class AddressResolverPrivate
 {
+public:
   AddressResolverPrivate()
     : baseAddress(0)
     , origBaseAddress(0)

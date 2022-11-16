@@ -26,7 +26,7 @@ struct PGCollectState
 {
   pid_t* pids;
   FILE* output;
-  size_t taskCount;
+  int taskCount;
   unsigned frequency;
   int gogoFD;
   int useSwEvents;
@@ -48,6 +48,7 @@ volatile sig_atomic_t stopCollecting = 0;
 
 static void signalHandler(int sigNo)
 {
+  (void)sigNo;
   stopCollecting = 1;
 }
 
@@ -69,7 +70,7 @@ static void collectTasks(struct PGCollectState* state, pid_t pid)
     exit(EXIT_FAILURE);
   }
 
-  size_t taskAlloc = 1024;
+  int taskAlloc = 1024;
   state->pids = malloc(taskAlloc * sizeof(pid));
   state->taskCount = 0;
 
