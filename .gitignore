@@ -9,8 +9,16 @@ perfgrind.includes
 
 # Build artifacts
 pgcollect
-pginfo
 pgconvert
+pginfo
 
-# Doxygen documentation
+# Test artifacts
+pginfo_dbg
+*.pgdata
+*.grind
+
+# clangd info (usable directly or via llvm-vs-code-extensions.vscode-clangd)
+# and Doxygen documentation
+compile_commands.json
+*.idx
 html
