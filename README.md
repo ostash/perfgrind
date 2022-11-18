@@ -4,6 +4,13 @@ This is 'perfgrind', tools for collecting samples from Linux performance events
 subsystem and converting profiling data to callgrind format, allowing it to be read with KCachegrind.
 
 Because of its own simplified format containing only the data necessary for creating the callgrind profile, the resulting file is commonly much smaller.
+One additional reason is that perfgrind explicitly ignores the kernel space during profiling.
+
+Note: Perfgrind has a known limitation which is on the TODO list - it currently does not handle
+separate debug (neither on disk nor via debuginfod). Compiling with debug info and collecting data
+from non-stripped binaries will provide you with useful tracing data; especially when calling into
+system libraries you may see entries like `func_7f2192e087070` in ld-2.31.so and similar.
+
 
 # License
 
@@ -49,6 +56,9 @@ Options to adjust generated callgrind data:
 - `-i` dump instructions, only possible with detail level "source"
 - `-m mode` default _mode_ is "callgraph" if detail level is not "object"
 
+Note: To collect with hardware counters you may have to adjust the kernel parameter
+`perf_event_paranoid` as root.
+
 ## `pginfo` - show event count and calculated entries 
 Usage: `pginfo {flat|callgraph} filename.pgdata`
 
@@ -64,4 +74,6 @@ either install from source or - preferably - via package manager, for example by
 - optional step: create site.mak file and set FLAGS variable with paths to elfutils header and libraries (necessary if using a "local" version of elfutils)  
   For example:  
   `FLAGS=-I/usr/local/elfutils/include -L/usr/local/elfutils/lib -O2 -march=native -Wl,-rpath /usr/local/elfutils/lib`
-- build it by issuing the `make` command
+- build it by issuing `make`
+- optional: run tests with `make check`
+- optional: install binaries to enable use by others with `make install`
