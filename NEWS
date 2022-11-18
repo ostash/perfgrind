@@ -1,3 +1,6 @@
+perfgrind 0.4
+* Allow to use software performance events (if requested from command line)
+
 perfgrind 0.3
 
 * Allow to set arbitrary frequency in pgcollect via -F argument.
