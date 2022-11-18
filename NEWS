@@ -2,6 +2,7 @@ perfgrind 0.3
 
 * Allow to set arbitrary frequency in pgcollect via -F argument.
 * Handling of hits in PLT added.
+* Properly handle page offset in mmap events.
 
 perfgrind 0.2
 
