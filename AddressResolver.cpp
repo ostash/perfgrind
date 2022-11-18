@@ -406,8 +406,7 @@ void AddressResolverPrivate::loadPLTSymbols(Elf* elf, Elf_Scn *pltSection, Elf_S
     GElf_Sym elfSymbol;
     gelf_getsym(dynsymData, symIdx, &elfSymbol);
 
-
-    ARSymbolData& symbolData = symbols[Range(symStart, symStart + symSize)];
+    ARSymbolData& symbolData = symbols.insert(ARSymbol(Range(symStart, symStart + symSize), ARSymbolData(symSize))).first->second;
     symbolData.name = elf_strptr(elf, strtabIdx, elfSymbol.st_name);
     symbolData.misc = ARSymbolData::MiscPLT;
 
