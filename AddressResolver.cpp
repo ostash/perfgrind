@@ -187,7 +187,8 @@ struct ARSymbolData
   explicit ARSymbolData(uint64_t _size)
     : size(_size)
   {}
-  ARSymbolData() {}
+  ARSymbolData()
+  { size = 0; }
   uint64_t size;
   std::string name;
   unsigned char misc;
