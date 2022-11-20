@@ -44,12 +44,13 @@ Options to specify target:
 - `cmd` command to profile, prefix with `--` to stop command line parsing
 
 ## `pgconvert` - convert collected samples to callgrind format
-Usage: `pgconvert [-m {flat|callgraph}] [-d {object|symbol|source}] [-i] filename.pgdata`  
+Usage: `pgconvert [-m {flat|callgraph}] [-d {object|symbol|source}] [-i] filename.pgdata [filename.grind]`  
+Note: If no output name is specified, then stdout will be used instead.  
 Examples:
 - overview showing call stack  
-  `pgconvert -d symbol filename.pgdata > callgrind.out.overfiew_pgdata`
+  `pgconvert -d symbol filename.pgdata overview.grind`
 - full data with source annotation and instructions  
-  `pgconvert -i filename.pgdata > callgrind.out.full_pgdata`
+  `pgconvert -i filename.pgdata full.grind`
 
 Options to adjust generated callgrind data:
 - `-d` specify detail level; default is "source"
@@ -68,7 +69,7 @@ Usage: `pginfo {flat|callgraph} filename.pgdata`
 # Building
 
 ## Dependency [elfutils](https://sourceware.org/elfutils/)
-either install from source or - preferably - via package manager, for example by issuing `sudo yum install elfutils-devel` or `sudo apt install libelf-dev`
+either install from source or - preferably - via package manager, for example by issuing `yum install elfutils-devel` or `apt install libdw-dev`
 
 ## Building the source
 - optional step: create site.mak file and set FLAGS variable with paths to elfutils header and libraries (necessary if using a "local" version of elfutils)  

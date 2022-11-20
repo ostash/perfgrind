@@ -57,8 +57,8 @@ check:	pgcollect pgconvert pginfo pginfo_dbg
 	@echo ""; echo "checking its infos ..."
 	./pginfo callgraph check.pgdata
 	@echo ""; echo "converting both collections to callgrind format ..."
-	./pgconvert check_ls.pgdata -d object       1> check_ls.grind
-	./pgconvert check.pgdata    -d source -i    1> check.grind
+	./pgconvert check_ls.pgdata -d object       1> check_ls.grind  # old: stdout
+	./pgconvert check.pgdata    -d source -i       check.grind     # new: second option
 	@echo ""; echo "done, you may want to issue \"make open-checkfiles\" to open the result via kcachegrind"
 
 open-checkfiles:	check_ls.grind check.grind
