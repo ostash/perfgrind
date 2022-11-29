@@ -163,7 +163,19 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
   state->sampleCount = 0;
   state->mmapCount = 0;
   state->synthMmapCount = 0;
+  state->gogoFD = 0;
 
+  if (argc < 3)
+    printUsage();
+
+  state->output = fopen(argv[1], "w");
+  if (!state->output)
+  {
+    fprintf(stderr, "Can't create output file %s: %s\n", argv[1], strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  optind = 2;
   int opt;
   pid_t pid = 0;
   while ((opt = getopt(argc, argv, "F:p:s")) != -1)
@@ -172,13 +184,18 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     {
     case 'F':
       state->frequency = strtoul(optarg, NULL, 10);
+      if (state->frequency == 0)
+      {
+        fprintf(stderr, "Invalid frequency '%s'\n", optarg);
+        exit(EXIT_FAILURE);
+      }
       break;
     case 'p': {
       state->gogoFD = -1;
       errno = 0;
       char* endptr;
       pid = strtoll(optarg, &endptr, 10);
-      if (errno != 0 || *endptr != 0)
+      if (errno != 0 || *endptr != 0 || pid == 0)
       {
         fprintf(stderr, "Bad PID '%s': %s\n", optarg, strerror(errno));
         exit(EXIT_FAILURE);
@@ -192,17 +209,10 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
     }
   }
 
-  // We still need output file and command to run for non-pid mode
-  if (argc - optind < (state->gogoFD == -1 ? 1 : 2))
+  // We still need a command to run for non-pid mode
+  if ((state->gogoFD != -1 && argc - optind < 1) ||
+      (state->gogoFD == -1 && argc != optind))
     printUsage();
-
-  state->output = fopen(argv[optind], "w");
-  if (!state->output)
-  {
-    fprintf(stderr, "Can't create output file %s: %s\n", *argv, strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  ++optind;
 
   fprintf(stdout, "Setting frequency to %u\n", state->frequency);
 
