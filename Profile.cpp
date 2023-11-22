@@ -226,20 +226,23 @@ void Profile::processMmapEvent(const pe::mmap_event& event)
 
 void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mode)
 {
-  if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2 || event.callchainSize > PERF_MAX_STACK_DEPTH)
+  if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2)
   {
-    badSamplesCount_++;
+    // Callchain which starts not in the user space
+
+    nonUserSamples_++;
     return;
   }
 
-  MemoryObjectStorage::iterator objIt = memoryObjects_.find(Range(event.ip));
-  if (objIt == memoryObjects_.end())
+  auto memoryObjectIt = memoryObjects_.find(Range(event.ip));
+  if (memoryObjectIt == memoryObjects_.end())
   {
-    badSamplesCount_++;
+    // Instruction pointer does not point any memory mapped object
+    unmappedSamples_++;
     return;
   }
 
-  objIt->second.appendEntry(event.ip, 1);
+  memoryObjectIt->second.appendEntry(event.ip, 1);
   goodSamplesCount_++;
 
   if (mode != Profile::CallGraph)
@@ -248,7 +251,9 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
   bool skipFrame = false;
   Address callTo = event.ip;
 
-  for (__u64 i = 2; i < event.callchainSize; ++i)
+  // NOTE: On recent kernels callchain depth can be controlled via sysctl kernel.perf_event_max_stack and
+  // kernel.perf_event_max_contexts_per_stack and they can be deeper then PERF_MAX_STACK_DEPTH.
+  for (__u64 i = 2; i < event.callchainSize && i < PERF_MAX_STACK_DEPTH; ++i)
   {
     Address callFrom = event.callchain[i];
     if (callFrom > PERF_CONTEXT_MAX)
@@ -260,11 +265,14 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
     if (skipFrame || callFrom == callTo)
       continue;
 
-    objIt = memoryObjects_.find(Range(callFrom));
-    if (objIt == memoryObjects_.end())
+    memoryObjectIt = memoryObjects_.find(Range(callFrom));
+    if (memoryObjectIt == memoryObjects_.end())
+      // We rely on frame-pointer based stack unwinding, which is not "reliable". If application was not built with
+      // -fno-omit-frame-pointer the callchain will contain invalid entries so we just skip addresses not belonging to
+      // any memory object.
       continue;
 
-    objIt->second.appendBranch(callFrom, callTo);
+    memoryObjectIt->second.appendBranch(callFrom, callTo);
 
     callTo = callFrom;
   }
@@ -296,12 +304,6 @@ void Profile::resolveAndFixup(Profile::DetailLevel details)
   for (auto& memoryObject: memoryObjects_)
     memoryObject.second.fixupBranches(memoryObjects_);
 }
-
-Profile::Profile()
-: mmapEventCount_(0)
-, goodSamplesCount_(0)
-, badSamplesCount_(0)
-{}
 
 void Profile::load(std::istream &is, Mode mode)
 {

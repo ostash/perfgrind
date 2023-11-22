@@ -143,12 +143,13 @@ class Profile
 public:
   enum Mode { Flat, CallGraph };
   enum DetailLevel { Objects, Symbols, Sources };
-  Profile();
+  Profile() = default;
 
   void load(std::istream& is, Mode mode = CallGraph);
   size_t mmapEventCount() const { return mmapEventCount_; }
   size_t goodSamplesCount() const { return goodSamplesCount_; }
-  size_t badSamplesCount() const { return badSamplesCount_; }
+  size_t nonUserSamples() const { return nonUserSamples_; }
+  size_t unmappedSamples() const { return unmappedSamples_; }
 
   void resolveAndFixup(DetailLevel details);
 
@@ -166,7 +167,8 @@ private:
   MemoryObjectStorage memoryObjects_;
   StringTable sourceFiles_;
 
-  size_t mmapEventCount_;
-  size_t goodSamplesCount_;
-  size_t badSamplesCount_;
+  size_t mmapEventCount_ = 0;
+  size_t goodSamplesCount_ = 0;
+  size_t nonUserSamples_ = 0;
+  size_t unmappedSamples_ = 0;
 };

@@ -40,14 +40,14 @@ int main(int argc, char** argv)
   for (const auto& memoryObject: profile.memoryObjects())
     entryCount += memoryObject.second.entries().size();
 
-  std::cout << "memory objects: " << profile.memoryObjects().size()
-     << "\nentries: " << entryCount
-     << "\n\nmmap events: " << profile.mmapEventCount()
-     << "\ngood sample events: " << profile.goodSamplesCount()
-     << "\nbad sample events: " << profile.badSamplesCount()
-     << "\ntotal sample events: " << profile.goodSamplesCount() + profile.badSamplesCount()
-     << "\ntotal events: " << profile.goodSamplesCount() + profile.badSamplesCount() + profile.mmapEventCount()
-     << '\n';
+  std::cout << "memory objects: " << profile.memoryObjects().size() << "\nentries: " << entryCount
+            << "\n\nmmap events: " << profile.mmapEventCount() << "\ngood sample events: " << profile.goodSamplesCount()
+            << "\nnon-user sample events: " << profile.nonUserSamples()
+            << "\nunmapped sample events: " << profile.unmappedSamples() << "\ntotal sample events: "
+            << profile.goodSamplesCount() + profile.nonUserSamples() + profile.unmappedSamples() << "\ntotal events: "
+            << profile.goodSamplesCount() + profile.goodSamplesCount() + profile.nonUserSamples() +
+                 profile.unmappedSamples()
+            << '\n';
 
   return 0;
 }
