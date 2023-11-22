@@ -68,22 +68,23 @@ union BranchTo
 typedef std::map<BranchTo, Count> BranchStorage;
 typedef BranchStorage::value_type Branch;
 
-class EntryDataPrivate;
 class EntryData
 {
 public:
-  Count count() const;
-  const BranchStorage& branches() const;
-  const std::string& sourceFile() const;
-  size_t sourceLine() const;
+  Count count() const { return count_; }
+  const BranchStorage& branches() const { return branches_; }
+  const std::string& sourceFile() const { return *sourceFile_; }
+  size_t sourceLine() const { return sourceLine_; }
+
 private:
   friend class MemoryObjectDataPrivate;
-  EntryData(const EntryData&);
-  EntryData& operator=(const EntryData&);
 
   explicit EntryData(Count count);
-  ~EntryData();
-  EntryDataPrivate* d;
+
+  Count count_;
+  BranchStorage branches_;
+  const std::string* sourceFile_;
+  size_t sourceLine_;
 };
 
 typedef std::map<Address, EntryData*> EntryStorage;
