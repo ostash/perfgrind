@@ -161,8 +161,8 @@ static void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectS
       for (const auto& branch: entrySum.branches)
       {
         const Symbol* callSymbol = branch.first;
-        const MemoryObjectData* callObjectData = objects.at(Range(callSymbol->first.start()));
-        dumpCallTo(os, *callObjectData, *callSymbol->second);
+        const MemoryObjectData& callObjectData = objects.at(Range(callSymbol->first.start()));
+        dumpCallTo(os, callObjectData, *callSymbol->second);
         os << "calls=1 " << callSymbol->second->sourceLine() << '\n';
         os << line << ' ' << branch.second << '\n';
       }
@@ -202,8 +202,8 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStor
     {
       const Symbol* callSymbol = branch.first.symbol;
       const MemoryObject& callObject = *objects.find(Range(callSymbol->first.start()));
-      Address callAddress = callSymbol->first.start() - callObject.first.start() + callObject.second->baseAddress();
-      dumpCallTo(os, *callObject.second, *callSymbol->second);
+      Address callAddress = callSymbol->first.start() - callObject.first.start() + callObject.second.baseAddress();
+      dumpCallTo(os, callObject.second, *callSymbol->second);
       os << "calls=1 0x" << std::hex << callAddress << std::dec << ' ' << callSymbol->second->sourceLine() << '\n';
       os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' ' << branch.second
          << '\n';
@@ -222,10 +222,10 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
   for (const auto& object: profile.memoryObjects())
   {
-    os << "ob=" << object.second->fileName() << '\n';
+    os << "ob=" << object.second.fileName() << '\n';
 
-    const EntryStorage& entries =  object.second->entries();
-    const SymbolStorage& symbols = object.second->symbols();
+    const EntryStorage& entries = object.second.entries();
+    const SymbolStorage& symbols = object.second.symbols();
 
     const std::string* fileName = 0;
 
@@ -246,7 +246,7 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
       if (dumpInstructions)
       {
-        int64_t addresAdjust = object.first.start() - object.second->baseAddress();
+        int64_t addresAdjust = object.first.start() - object.second.baseAddress();
         dumpEntriesWithInstructions(os, profile.memoryObjects(), fileName, addresAdjust, entryFirst, entryLast);
       }
       else

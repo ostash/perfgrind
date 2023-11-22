@@ -167,11 +167,11 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
     for (const auto& branch: entryData.branches())
     {
       const Address& branchAddress = branch.first.address;
-      const MemoryObjectData* callObjectData = objects.at(Range(branchAddress));
-      SymbolStorage::const_iterator callSymbolIt = callObjectData->symbols_.find(Range(branchAddress));
-      if (callSymbolIt != callObjectData->symbols().end())
+      const MemoryObjectData& callObjectData = objects.at(Range(branchAddress));
+      SymbolStorage::const_iterator callSymbolIt = callObjectData.symbols_.find(Range(branchAddress));
+      if (callSymbolIt != callObjectData.symbols().end())
       {
-        if (callObjectData != this || callSymbolIt != selfSymIt)
+        if (&callObjectData != this || callSymbolIt != selfSymIt)
           fixedEntry.branches_[&(*callSymbolIt)] += branch.second;
       }
     }
@@ -205,19 +205,19 @@ MemoryObjectData::~MemoryObjectData()
 void Profile::processMmapEvent(const pe::mmap_event& event)
 {
 #ifndef NDEBUG
-  std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
+  auto insRes =
 #endif
-  memoryObjects_.insert(MemoryObject(Range(event.address, event.address + event.length),
-                                    new MemoryObjectData(event.fileName, event.pageOffset)));
+    memoryObjects_.emplace(std::piecewise_construct, std::forward_as_tuple(event.address, event.address + event.length),
+                           std::forward_as_tuple(event.fileName, event.pageOffset));
 #ifndef NDEBUG
   if (!insRes.second)
   {
     std::cerr << "Memory object was not inserted! " << event.address << " " << event.length << " "
               << event.fileName << '\n';
-    std::cerr << "Already have another object: " << insRes.first->first << ' ' << insRes.first->second->fileName()
+    std::cerr << "Already have another object: " << insRes.first->first << ' ' << insRes.first->second.fileName()
               << '\n';
     for (const auto& memoryObject: memoryObjects_)
-      std::cerr << memoryObject.first << ' ' << memoryObject.second->fileName() << '\n';
+      std::cerr << memoryObject.first << ' ' << memoryObject.second.fileName() << '\n';
     std::cerr << std::endl;
   }
 #endif
@@ -239,7 +239,7 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
     return;
   }
 
-  objIt->second->appendEntry(event.ip, 1);
+  objIt->second.appendEntry(event.ip, 1);
   goodSamplesCount_++;
 
   if (mode != Profile::CallGraph)
@@ -264,7 +264,7 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
     if (objIt == memoryObjects_.end())
       continue;
 
-    objIt->second->appendBranch(callFrom, callTo);
+    objIt->second.appendBranch(callFrom, callTo);
 
     callTo = callFrom;
   }
@@ -273,31 +273,28 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
 void Profile::cleanupMemoryObjects()
 {
   // Drop memory objects that don't have any entries
-  MemoryObjectStorage::iterator objIt = memoryObjects_.begin();
-  while (objIt != memoryObjects_.end())
+  auto memoryObjectIt = memoryObjects_.begin();
+  while (memoryObjectIt != memoryObjects_.end())
   {
-    if (objIt->second->entries().size() == 0)
+    if (memoryObjectIt->second.entries().empty())
     {
-      delete objIt->second;
-      // With C++11 we can just do:
-      // objIt = d->memoryObjects.erase(objIt);
-      memoryObjects_.erase(objIt++);
+      memoryObjectIt = memoryObjects_.erase(memoryObjectIt);
     }
     else
-      ++objIt;
+      ++memoryObjectIt;
   }
 }
 
 void Profile::resolveAndFixup(Profile::DetailLevel details)
 {
-  for (const auto& memoryObject: memoryObjects_)
+  for (auto& memoryObject: memoryObjects_)
   {
-    AddressResolver r(details, memoryObject.second->fileName_.c_str(), memoryObject.first.length());
-    memoryObject.second->resolveEntries(r, memoryObject.first.start(), details == Profile::Sources ? &sourceFiles_ : 0);
+    const AddressResolver r(details, memoryObject.second.fileName_.c_str(), memoryObject.first.length());
+    memoryObject.second.resolveEntries(r, memoryObject.first.start(), details == Profile::Sources ? &sourceFiles_ : 0);
   }
 
-  for (const auto& memoryObject: memoryObjects_)
-    memoryObject.second->fixupBranches(memoryObjects_);
+  for (auto& memoryObject: memoryObjects_)
+    memoryObject.second.fixupBranches(memoryObjects_);
 }
 
 Profile::Profile()
@@ -305,12 +302,6 @@ Profile::Profile()
 , goodSamplesCount_(0)
 , badSamplesCount_(0)
 {}
-
-Profile::~Profile()
-{
-  for (const auto& memoryObject: memoryObjects_)
-    delete memoryObject.second;
-}
 
 void Profile::load(std::istream &is, Mode mode)
 {

@@ -38,7 +38,7 @@ int main(int argc, char** argv)
 
   size_t entryCount = 0;
   for (const auto& memoryObject: profile.memoryObjects())
-    entryCount += memoryObject.second->entries().size();
+    entryCount += memoryObject.second.entries().size();
 
   std::cout << "memory objects: " << profile.memoryObjects().size()
      << "\nentries: " << entryCount

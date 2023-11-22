@@ -101,12 +101,17 @@ typedef std::unordered_set<std::string> StringTable;
 
 class AddressResolver;
 class MemoryObjectData;
-typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
-typedef MemoryObjectStorage::value_type MemoryObject;
+using MemoryObjectStorage = std::map<Range, MemoryObjectData>;
+using MemoryObject = MemoryObjectStorage::value_type;
 
 class MemoryObjectData
 {
 public:
+  MemoryObjectData(const char* fileName, Size pageOffset);
+  ~MemoryObjectData();
+  MemoryObjectData(const MemoryObjectData&) = delete;
+  MemoryObjectData& operator=(const MemoryObjectData&) = delete;
+
   Address baseAddress() const { return baseAddress_; }
   const std::string& fileName() const { return fileName_; }
   const EntryStorage& entries() const { return entries_; }
@@ -114,11 +119,6 @@ public:
 
 private:
   friend class Profile;
-  MemoryObjectData(const MemoryObjectData&);
-  MemoryObjectData& operator=(const MemoryObjectData&);
-
-  MemoryObjectData(const char* fileName, Size pageOffset);
-  ~MemoryObjectData();
 
   EntryData& appendEntry(Address address, Count count);
   void appendBranch(Address from, Address to);
@@ -133,9 +133,6 @@ private:
   std::string fileName_;
 };
 
-typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
-typedef MemoryObjectStorage::value_type MemoryObject;
-
 namespace pe
 {
 struct mmap_event;
@@ -147,7 +144,6 @@ public:
   enum Mode { Flat, CallGraph };
   enum DetailLevel { Objects, Symbols, Sources };
   Profile();
-  ~Profile();
 
   void load(std::istream& is, Mode mode = CallGraph);
   size_t mmapEventCount() const { return mmapEventCount_; }
