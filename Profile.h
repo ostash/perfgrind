@@ -107,7 +107,7 @@ public:
   const SymbolStorage& symbols() const { return symbols_; }
 
 private:
-  friend class ProfilePrivate;
+  friend class Profile;
   MemoryObjectData(const MemoryObjectData&);
   MemoryObjectData& operator=(const MemoryObjectData&);
 
@@ -130,8 +130,11 @@ private:
 typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
 typedef MemoryObjectStorage::value_type MemoryObject;
 
-class ProfilePrivate;
-
+namespace pe
+{
+struct mmap_event;
+struct sample_event;
+} // namespace pe
 class Profile
 {
 public:
@@ -141,19 +144,29 @@ public:
   ~Profile();
 
   void load(std::istream& is, Mode mode = CallGraph);
-  size_t mmapEventCount() const;
-  size_t goodSamplesCount() const;
-  size_t badSamplesCount() const;
+  size_t mmapEventCount() const { return mmapEventCount_; }
+  size_t goodSamplesCount() const { return goodSamplesCount_; }
+  size_t badSamplesCount() const { return badSamplesCount_; }
 
   void resolveAndFixup(DetailLevel details);
 
-  const MemoryObjectStorage& memoryObjects() const;
+  const MemoryObjectStorage& memoryObjects() const { return memoryObjects_; }
 
 private:
   Profile(const Profile&);
   Profile& operator=(const Profile&);
 
-  ProfilePrivate* d;
+  void processMmapEvent(const pe::mmap_event& event);
+  void processSampleEvent(const pe::sample_event& event, Profile::Mode mode);
+
+  void cleanupMemoryObjects();
+
+  MemoryObjectStorage memoryObjects_;
+  StringTable sourceFiles_;
+
+  size_t mmapEventCount_;
+  size_t goodSamplesCount_;
+  size_t badSamplesCount_;
 };
 
 #endif // PROFILE_H

@@ -197,38 +197,7 @@ MemoryObjectData::~MemoryObjectData()
     delete entryIt->second;
 }
 
-// ProfilePrivate methods
-class ProfilePrivate
-{
-  friend class Profile;
-  ProfilePrivate()
-    : mmapEventCount_(0)
-    , goodSamplesCount_(0)
-    , badSamplesCount_(0)
-  {}
-  ~ProfilePrivate();
-
-  void processMmapEvent(const pe::mmap_event &event);
-  void processSampleEvent(const pe::sample_event &event, Profile::Mode mode);
-
-  void cleanupMemoryObjects();
-  void resolveAndFixup(Profile::DetailLevel details);
-
-  MemoryObjectStorage memoryObjects_;
-  StringTable sourceFiles_;
-
-  size_t mmapEventCount_;
-  size_t goodSamplesCount_;
-  size_t badSamplesCount_;
-};
-
-ProfilePrivate::~ProfilePrivate()
-{
-  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
-    delete objIt->second;
-}
-
-void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
+void Profile::processMmapEvent(const pe::mmap_event& event)
 {
 #ifndef NDEBUG
   std::pair<MemoryObjectStorage::const_iterator, bool> insRes =
@@ -250,7 +219,7 @@ void ProfilePrivate::processMmapEvent(const pe::mmap_event &event)
   mmapEventCount_++;
 }
 
-void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::Mode mode)
+void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mode)
 {
   if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2 || event.callchainSize > PERF_MAX_STACK_DEPTH)
   {
@@ -296,7 +265,7 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
   }
 }
 
-void ProfilePrivate::cleanupMemoryObjects()
+void Profile::cleanupMemoryObjects()
 {
   // Drop memory objects that don't have any entries
   MemoryObjectStorage::iterator objIt = memoryObjects_.begin();
@@ -314,7 +283,7 @@ void ProfilePrivate::cleanupMemoryObjects()
   }
 }
 
-void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
+void Profile::resolveAndFixup(Profile::DetailLevel details)
 {
   for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
   {
@@ -325,12 +294,17 @@ void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
     objIt->second->fixupBranches(memoryObjects_);
 }
 
-// Profile methods
-
-Profile::Profile() : d(new ProfilePrivate)
+Profile::Profile()
+: mmapEventCount_(0)
+, goodSamplesCount_(0)
+, badSamplesCount_(0)
 {}
 
-Profile::~Profile() { delete d; }
+Profile::~Profile()
+{
+  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
+    delete objIt->second;
+}
 
 void Profile::load(std::istream &is, Mode mode)
 {
@@ -343,22 +317,12 @@ void Profile::load(std::istream &is, Mode mode)
     switch (event.header.type)
     {
     case PERF_RECORD_MMAP:
-      d->processMmapEvent(event.mmap);
+      processMmapEvent(event.mmap);
       break;
     case PERF_RECORD_SAMPLE:
-      d->processSampleEvent(event.sample, mode);
+      processSampleEvent(event.sample, mode);
     }
   }
 
-  d->cleanupMemoryObjects();
+  cleanupMemoryObjects();
 }
-
-size_t Profile::mmapEventCount() const { return d->mmapEventCount_; }
-
-size_t Profile::goodSamplesCount() const { return d->goodSamplesCount_; }
-
-size_t Profile::badSamplesCount() const { return d->badSamplesCount_; }
-
-void Profile::resolveAndFixup(DetailLevel details) { d->resolveAndFixup(details); }
-
-const MemoryObjectStorage& Profile::memoryObjects() const { return d->memoryObjects_; }
