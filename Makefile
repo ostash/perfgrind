@@ -17,14 +17,14 @@ pgcollect: pgcollect.c
 	$(CC) -std=gnu99  -O2 $(CFLAGS) ${FLAGS} -D_GNU_SOURCE -o pgcollect  pgcollect.c
 
 pgconvert: pgconvert.cpp $(SOURCES) $(HEADERS)
-	$(CXX) -std=c++03 -O2 $(CFLAGS) ${FLAGS} -o pgconvert  pgconvert.cpp $(SOURCES) -ldw -lelf
+	$(CXX) -std=c++11 -O2 $(CFLAGS) ${FLAGS} -o pgconvert  pgconvert.cpp $(SOURCES) -ldw -lelf
 
 pginfo: pginfo.cpp $(SOURCES) $(HEADERS)
-	$(CXX) -std=c++03 -O2 $(CFLAGS) ${FLAGS} -o pginfo     pginfo.cpp    $(SOURCES) -ldw -lelf
+	$(CXX) -std=c++11 -O2 $(CFLAGS) ${FLAGS} -o pginfo     pginfo.cpp    $(SOURCES) -ldw -lelf
 
 # only used to be traced itself
 pginfo_dbg: pginfo.cpp $(SOURCES) $(HEADERS)
-	$(CXX) -std=c++03 -O  $(CFLAGS) ${FLAGS} -g -fno-omit-frame-pointer -o pginfo_dbg pginfo.cpp    $(SOURCES) -ldw -lelf
+	$(CXX) -std=c++11 -O  $(CFLAGS) ${FLAGS} -g -fno-omit-frame-pointer -o pginfo_dbg pginfo.cpp    $(SOURCES) -ldw -lelf
 
 
 .PHONY: install uninstall clean clean-dev clean-check

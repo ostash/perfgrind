@@ -190,7 +190,7 @@ struct ARSymbolData
   ARSymbolData() {}
   uint64_t size;
   std::string name;
-  unsigned char misc;
+  unsigned char misc = 0;
 };
 
 typedef std::map<Range, ARSymbolData> ARSymbolStorage;
@@ -329,12 +329,11 @@ bool AddressResolver::resolve(Address value, Address loadBase, Range& symbolRang
     return false;
   }
 
-  symbolRange.start = arSymIt->first.start + adjust;
-  symbolRange.end = arSymIt->first.end + adjust;
+  symbolRange = arSymIt->first.adjusted(adjust);
 
   const std::string& maybeSymbolName = arSymIt->second.name;
   if (maybeSymbolName.empty())
-    symbolName = constructSymbolName(symbolRange.start);
+    symbolName = constructSymbolName(symbolRange.start());
   else
   {
     char* demangledName = __cxxabiv1::__cxa_demangle(maybeSymbolName.c_str(), 0, 0, 0);
@@ -529,8 +528,8 @@ void AddressResolverPrivate::constructFakeSymbols(Profile::DetailLevel details, 
   for (ARSymbolStorage::iterator symIt = symbols.begin(); symIt != symbols.end(); ++symIt)
   {
     const Range& symRange = symIt->first;
-    if (symRange.start - prevEnd >= 4)
-      newSymbols.insert(ARSymbol(Range(prevEnd, symRange.start), ARSymbolData(symRange.start - prevEnd)));
+    if (symRange.start() - prevEnd >= 4)
+      newSymbols.insert(ARSymbol(Range(prevEnd, symRange.start()), ARSymbolData(symRange.start() - prevEnd)));
 
     // Expand asm label to next symbol
     if (symIt->second.size == 0)
@@ -541,19 +540,19 @@ void AddressResolverPrivate::constructFakeSymbols(Profile::DetailLevel details, 
       if (nextSymIt == symbols.end())
         newEnd = baseAddress + objectSize;
       else
-        newEnd = nextSymIt->first.start;
+        newEnd = nextSymIt->first.start();
 
-      ARSymbolData newSymbolData(newEnd - symRange.start);
+      ARSymbolData newSymbolData(newEnd - symRange.start());
       newSymbolData.name = symIt->second.name.append(1, '@').append(baseName);
 
-      newSymbols.insert(ARSymbol(Range(symRange.start, newEnd), newSymbolData));
+      newSymbols.insert(ARSymbol(Range(symRange.start(), newEnd), newSymbolData));
 
       prevEnd = newEnd;
     }
     else
     {
       newSymbols.insert(*symIt);
-      prevEnd = symRange.end;
+      prevEnd = symRange.end();
     }
   }
   if (baseAddress + objectSize - prevEnd >= 4)

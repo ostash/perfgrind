@@ -1,5 +1,6 @@
 perfgrind 0.4
 * Allow to use software performance events (if requested from command line)
+* C++11 compiler is required now for building perfgrind
 
 perfgrind 0.3
 

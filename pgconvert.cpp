@@ -115,9 +115,8 @@ struct EntryGroupper
     EntrySum& groupData = group[&entryData->sourceFile()][entryData->sourceLine()];
     groupData.count += entryData->count();
 
-    for (BranchStorage::const_iterator branchIt = entryData->branches().begin();
-         branchIt != entryData->branches().end(); ++branchIt)
-      groupData.branches[branchIt->first.symbol] += branchIt->second;
+    for (const auto& branch: entryData->branches())
+      groupData.branches[branch.first.symbol] += branch.second;
 
     return group;
   }
@@ -151,22 +150,21 @@ static void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectS
     if (currentFileDone)
       os << "fi=" << fileName << '\n';
 
-    for (ByLine::const_iterator byLineIt = byLine.begin(); byLineIt != byLine.end(); ++byLineIt)
+    for (const auto& byLineElem: byLine)
     {
-      size_t line = byLineIt->first;
-      const EntrySum& entrySum = byLineIt->second;
+      const size_t line = byLineElem.first;
+      const EntrySum& entrySum = byLineElem.second;
 
       if (entrySum.count)
         os << line << ' ' << entrySum.count << '\n';
 
-      for (std::map<const Symbol*, Count>::const_iterator branchIt = entrySum.branches.begin();
-           branchIt != entrySum.branches.end(); ++branchIt)
+      for (const auto& branch: entrySum.branches)
       {
-        const Symbol* callSymbol = branchIt->first;
-        const MemoryObjectData* callObjectData = objects.at(Range(callSymbol->first.start));
+        const Symbol* callSymbol = branch.first;
+        const MemoryObjectData* callObjectData = objects.at(Range(callSymbol->first.start()));
         dumpCallTo(os, *callObjectData, *callSymbol->second);
         os << "calls=1 " << callSymbol->second->sourceLine() << '\n';
-        os << line << ' ' << branchIt->second << '\n';
+        os << line << ' ' << branch.second << '\n';
       }
     }
     if (!currentFileDone)
@@ -200,16 +198,15 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStor
       os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' '
          << entryData.count() << '\n';
 
-    for (BranchStorage::const_iterator branchIt = entryFirst->second->branches().begin();
-         branchIt != entryFirst->second->branches().end(); ++branchIt)
+    for (const auto& branch: entryFirst->second->branches())
     {
-      const Symbol* callSymbol = branchIt->first.symbol;
-      const MemoryObject& callObject = *objects.find(Range(callSymbol->first.start));
-      Address callAddress = callSymbol->first.start - callObject.first.start + callObject.second->baseAddress();
+      const Symbol* callSymbol = branch.first.symbol;
+      const MemoryObject& callObject = *objects.find(Range(callSymbol->first.start()));
+      Address callAddress = callSymbol->first.start() - callObject.first.start() + callObject.second->baseAddress();
       dumpCallTo(os, *callObject.second, *callSymbol->second);
       os << "calls=1 0x" << std::hex << callAddress << std::dec << ' ' << callSymbol->second->sourceLine() << '\n';
-      os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' '
-         << branchIt->second << '\n';
+      os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' ' << branch.second
+         << '\n';
     }
   }
 }
@@ -223,10 +220,8 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
   os << "events: Cycles\n\n";
 
-  for (MemoryObjectStorage::const_iterator objIt = profile.memoryObjects().begin();
-       objIt != profile.memoryObjects().end(); ++objIt)
+  for (const auto& object: profile.memoryObjects())
   {
-    const MemoryObject& object = *objIt;
     os << "ob=" << object.second->fileName() << '\n';
 
     const EntryStorage& entries =  object.second->entries();
@@ -234,10 +229,10 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
     const std::string* fileName = 0;
 
-    for (SymbolStorage::const_iterator symIt = symbols.begin(); symIt != symbols.end(); ++symIt)
+    for (const auto& symbol: symbols)
     {
-      const Range& symbolRange = symIt->first;
-      const SymbolData& symbolData = *symIt->second;
+      const Range& symbolRange = symbol.first;
+      const SymbolData& symbolData = *symbol.second;
 
       if (!fileName || fileName != &symbolData.sourceFile())
       {
@@ -246,12 +241,12 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
       }
       os << "fn=" << symbolData.name() << '\n';
 
-      EntryStorage::const_iterator entryFirst = entries.lower_bound(symbolRange.start);
-      EntryStorage::const_iterator entryLast = entries.upper_bound(symbolRange.end);
+      EntryStorage::const_iterator entryFirst = entries.lower_bound(symbolRange.start());
+      EntryStorage::const_iterator entryLast = entries.upper_bound(symbolRange.end());
 
       if (dumpInstructions)
       {
-        int64_t addresAdjust = object.first.start - object.second->baseAddress();
+        int64_t addresAdjust = object.first.start() - object.second->baseAddress();
         dumpEntriesWithInstructions(os, profile.memoryObjects(), fileName, addresAdjust, entryFirst, entryLast);
       }
       else

@@ -1,34 +1,40 @@
-#ifndef PROFILE_H
-#define PROFILE_H
+#pragma once
 
+#include <cstdint>
 #include <istream>
 #include <map>
-#include <stdint.h>
-#include <tr1/unordered_set>
+#include <unordered_set>
 
-typedef uint64_t Address;
-typedef uint64_t Count;
-typedef uint64_t Size;
+using Address = std::uint64_t;
+using Count = std::uint64_t;
+using Size = std::uint64_t;
+using Offset = std::int64_t;
 
-struct Range
+class Range
 {
-  Range() {}
-  Range(uint64_t _start, uint64_t _end)
-    : start(_start)
-    , end(_end)
+public:
+  Range(Address start, Address end)
+  : start_(start)
+  , end_(end)
   {}
-  explicit Range(uint64_t value)
-    : start(value)
-    , end(value + 1)
-  {}
-  bool operator<(const Range& rhs) const
-  {
-    return end <= rhs.start;
-  }
 
-  uint64_t start;
-  uint64_t end;
+  explicit Range(Address value)
+  : Range(value, value + 1)
+  {}
+
+  Address start() const { return start_; }
+  Address end() const { return end_; }
+  Size length() const { return end_ - start_; }
+  Range adjusted(Offset offset) const { return Range(start_ + offset, end_ + offset); }
+
+  bool operator<(const Range& rhs) const { return end_ <= rhs.start_; }
+
+private:
+  Address start_;
+  Address end_;
 };
+
+std::ostream& operator<<(std::ostream& os, const Range& range);
 
 class SymbolData
 {
@@ -91,7 +97,7 @@ private:
 typedef std::map<Address, EntryData*> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
-typedef std::tr1::unordered_set<std::string> StringTable;
+typedef std::unordered_set<std::string> StringTable;
 
 class AddressResolver;
 class MemoryObjectData;
@@ -168,5 +174,3 @@ private:
   size_t goodSamplesCount_;
   size_t badSamplesCount_;
 };
-
-#endif // PROFILE_H

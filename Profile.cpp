@@ -3,9 +3,9 @@
 #include "AddressResolver.h"
 
 #include <algorithm>
-#include <vector>
-#include <tr1/unordered_set>
 #include <climits>
+#include <vector>
+
 #include <linux/perf_event.h>
 
 #ifndef PERF_MAX_STACK_DEPTH
@@ -59,7 +59,13 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 }
 
-typedef std::tr1::unordered_set<std::string> StringTable;
+std::ostream& operator<<(std::ostream& os, const Range& range)
+{
+  const auto f = os.flags();
+  os << "0x" << std::hex << range.start() << " 0x" << range.end();
+  os.flags(f);
+  return os;
+}
 
 SymbolData::SymbolData()
 : sourceFile_(&unknownFile)
@@ -98,14 +104,14 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address l
   EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
   {
-    Range symbolRange;
+    Range symbolRange(0);
     SymbolData* symbolData = new SymbolData();
 
     if (resolver.resolve(entryIt->first, loadBase, symbolRange, symbolData->name_))
     {
       if (sourceFiles)
       {
-        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(symbolRange.start, loadBase);
+        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(symbolRange.start(), loadBase);
         if (pos.first)
         {
           symbolData->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
@@ -135,7 +141,7 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address l
       }
       ++entryIt;
     }
-    while (entryIt != entries_.end() && entryIt->first < symbolRange.end);
+    while (entryIt != entries_.end() && entryIt->first < symbolRange.end());
   }
 }
 
@@ -158,16 +164,15 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
     SymbolStorage::const_iterator selfSymIt = symbols_.find(Range(entryIt->first));
 
     EntryData fixedEntry(entryData.count());
-    for (BranchStorage::const_iterator branchIt = entryData.branches().begin(); branchIt != entryData.branches().end();
-         ++branchIt)
+    for (const auto& branch: entryData.branches())
     {
-      const Address& branchAddress = branchIt->first.address;
+      const Address& branchAddress = branch.first.address;
       const MemoryObjectData* callObjectData = objects.at(Range(branchAddress));
       SymbolStorage::const_iterator callSymbolIt = callObjectData->symbols_.find(Range(branchAddress));
       if (callSymbolIt != callObjectData->symbols().end())
       {
         if (callObjectData != this || callSymbolIt != selfSymIt)
-          fixedEntry.branches_[&(*callSymbolIt)] += branchIt->second;
+          fixedEntry.branches_[&(*callSymbolIt)] += branch.second;
       }
     }
 
@@ -193,8 +198,8 @@ MemoryObjectData::MemoryObjectData(const char* fileName, Size pageOffset)
 
 MemoryObjectData::~MemoryObjectData()
 {
-  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
-    delete entryIt->second;
+  for (const auto& entry: entries_)
+    delete entry.second;
 }
 
 void Profile::processMmapEvent(const pe::mmap_event& event)
@@ -209,10 +214,10 @@ void Profile::processMmapEvent(const pe::mmap_event& event)
   {
     std::cerr << "Memory object was not inserted! " << event.address << " " << event.length << " "
               << event.fileName << '\n';
-    std::cerr << "Already have another object: " << (insRes.first->first.start) << ' '
-              << (insRes.first->first.end) << ' ' << insRes.first->second->fileName() << '\n';
-    for (MemoryObjectStorage::const_iterator it = memoryObjects_.begin(); it != memoryObjects_.end(); ++it)
-      std::cerr << it->first.start << ' ' << it->first.end << ' ' << it->second->fileName() << '\n';
+    std::cerr << "Already have another object: " << insRes.first->first << ' ' << insRes.first->second->fileName()
+              << '\n';
+    for (const auto& memoryObject: memoryObjects_)
+      std::cerr << memoryObject.first << ' ' << memoryObject.second->fileName() << '\n';
     std::cerr << std::endl;
   }
 #endif
@@ -285,13 +290,14 @@ void Profile::cleanupMemoryObjects()
 
 void Profile::resolveAndFixup(Profile::DetailLevel details)
 {
-  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
+  for (const auto& memoryObject: memoryObjects_)
   {
-    AddressResolver r(details, objIt->second->fileName_.c_str(), objIt->first.end - objIt->first.start);
-    objIt->second->resolveEntries(r, objIt->first.start, details == Profile::Sources ? &sourceFiles_ : 0);
+    AddressResolver r(details, memoryObject.second->fileName_.c_str(), memoryObject.first.length());
+    memoryObject.second->resolveEntries(r, memoryObject.first.start(), details == Profile::Sources ? &sourceFiles_ : 0);
   }
-  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
-    objIt->second->fixupBranches(memoryObjects_);
+
+  for (const auto& memoryObject: memoryObjects_)
+    memoryObject.second->fixupBranches(memoryObjects_);
 }
 
 Profile::Profile()
@@ -302,8 +308,8 @@ Profile::Profile()
 
 Profile::~Profile()
 {
-  for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
-    delete objIt->second;
+  for (const auto& memoryObject: memoryObjects_)
+    delete memoryObject.second;
 }
 
 void Profile::load(std::istream &is, Mode mode)
