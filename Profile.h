@@ -4,6 +4,7 @@
 #include <istream>
 #include <map>
 #include <stdint.h>
+#include <tr1/unordered_set>
 
 typedef uint64_t Address;
 typedef uint64_t Count;
@@ -37,7 +38,7 @@ public:
   size_t sourceLine() const { return sourceLine_; }
 
 private:
-  friend class MemoryObjectDataPrivate;
+  friend class MemoryObjectData;
 
   SymbolData();
 
@@ -77,7 +78,7 @@ public:
   size_t sourceLine() const { return sourceLine_; }
 
 private:
-  friend class MemoryObjectDataPrivate;
+  friend class MemoryObjectData;
 
   explicit EntryData(Count count);
 
@@ -90,23 +91,40 @@ private:
 typedef std::map<Address, EntryData*> EntryStorage;
 typedef EntryStorage::value_type Entry;
 
-class MemoryObjectDataPrivate;
+typedef std::tr1::unordered_set<std::string> StringTable;
+
+class AddressResolver;
+class MemoryObjectData;
+typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;
+typedef MemoryObjectStorage::value_type MemoryObject;
+
 class MemoryObjectData
 {
 public:
-  Address baseAddress() const;
-  const std::string& fileName() const;
-  const EntryStorage& entries() const;
-  const SymbolStorage& symbols() const;
+  Address baseAddress() const { return baseAddress_; }
+  const std::string& fileName() const { return fileName_; }
+  const EntryStorage& entries() const { return entries_; }
+  const SymbolStorage& symbols() const { return symbols_; }
+
 private:
   friend class ProfilePrivate;
-  friend class MemoryObjectDataPrivate;
   MemoryObjectData(const MemoryObjectData&);
   MemoryObjectData& operator=(const MemoryObjectData&);
 
   MemoryObjectData(const char* fileName, Size pageOffset);
   ~MemoryObjectData();
-  MemoryObjectDataPrivate* d;
+
+  EntryData& appendEntry(Address address, Count count);
+  void appendBranch(Address from, Address to);
+
+  void resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles);
+  void fixupBranches(const MemoryObjectStorage& objects);
+
+  Address baseAddress_;
+  Size pageOffset_;
+  EntryStorage entries_;
+  SymbolStorage symbols_;
+  std::string fileName_;
 };
 
 typedef std::map<Range, MemoryObjectData*> MemoryObjectStorage;

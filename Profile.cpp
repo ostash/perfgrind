@@ -72,40 +72,7 @@ EntryData::EntryData(Count count)
 , sourceLine_(0)
 {}
 
-// MemoryObjectDataPrivate methods
-
-class MemoryObjectDataPrivate
-{
-  friend class MemoryObjectData;
-  friend class ProfilePrivate;
-  MemoryObjectDataPrivate(const char* fileName, Size pageOffset)
-    : baseAddress_(0)
-    , pageOffset_(pageOffset)
-    , fileName_(fileName)
-  {}
-  ~MemoryObjectDataPrivate();
-
-  void setBaseAddress(Address value) { baseAddress_ = value; }
-  EntryData &appendEntry(Address address, Count count);
-  void appendBranch(Address from, Address to);
-
-  void resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles);
-  void fixupBranches(const MemoryObjectStorage &objects);
-
-  Address baseAddress_;
-  Size pageOffset_;
-  EntryStorage entries_;
-  SymbolStorage symbols_;
-  std::string fileName_;
-};
-
-MemoryObjectDataPrivate::~MemoryObjectDataPrivate()
-{
-  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
-    delete entryIt->second;
-}
-
-EntryData& MemoryObjectDataPrivate::appendEntry(Address address, Count count)
+EntryData& MemoryObjectData::appendEntry(Address address, Count count)
 {
   EntryData*& entryData = entries_[address];
   if (!entryData)
@@ -116,13 +83,12 @@ EntryData& MemoryObjectDataPrivate::appendEntry(Address address, Count count)
   return *entryData;
 }
 
-void MemoryObjectDataPrivate::appendBranch(Address from, Address to)
+void MemoryObjectData::appendBranch(Address from, Address to)
 {
   appendEntry(from, 0).branches_[to]++;
 }
 
-void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Address loadBase,
-                                             StringTable *sourceFiles)
+void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles)
 {
   // Set up correct base address
   baseAddress_ = resolver.baseAddress();
@@ -173,7 +139,7 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
   }
 }
 
-void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
+void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
 {
   // Fixup branches
   // Call "to" address should point to first address of called function,
@@ -197,10 +163,10 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
     {
       const Address& branchAddress = branchIt->first.address;
       const MemoryObjectData* callObjectData = objects.at(Range(branchAddress));
-      SymbolStorage::const_iterator callSymbolIt = callObjectData->d->symbols_.find(Range(branchAddress));
+      SymbolStorage::const_iterator callSymbolIt = callObjectData->symbols_.find(Range(branchAddress));
       if (callSymbolIt != callObjectData->symbols().end())
       {
-        if (callObjectData->d != this || callSymbolIt != selfSymIt)
+        if (callObjectData != this || callSymbolIt != selfSymIt)
           fixedEntry.branches_[&(*callSymbolIt)] += branchIt->second;
       }
     }
@@ -219,21 +185,17 @@ void MemoryObjectDataPrivate::fixupBranches(const MemoryObjectStorage& objects)
   }
 }
 
-// MemoryObjectData methods
-
-Address MemoryObjectData::baseAddress() const { return d->baseAddress_; }
-
-const std::string& MemoryObjectData::fileName() const { return d->fileName_; }
-
-const EntryStorage& MemoryObjectData::entries() const { return d->entries_; }
-
-const SymbolStorage& MemoryObjectData::symbols() const { return d->symbols_; }
-
-MemoryObjectData::MemoryObjectData(const char *fileName, Size pageOffset)
-  : d(new MemoryObjectDataPrivate(fileName, pageOffset))
+MemoryObjectData::MemoryObjectData(const char* fileName, Size pageOffset)
+: baseAddress_(0)
+, pageOffset_(pageOffset)
+, fileName_(fileName)
 {}
 
-MemoryObjectData::~MemoryObjectData() { delete d; }
+MemoryObjectData::~MemoryObjectData()
+{
+  for (EntryStorage::iterator entryIt = entries_.begin(); entryIt != entries_.end(); ++entryIt)
+    delete entryIt->second;
+}
 
 // ProfilePrivate methods
 class ProfilePrivate
@@ -303,7 +265,7 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
     return;
   }
 
-  objIt->second->d->appendEntry(event.ip, 1);
+  objIt->second->appendEntry(event.ip, 1);
   goodSamplesCount_++;
 
   if (mode != Profile::CallGraph)
@@ -328,7 +290,7 @@ void ProfilePrivate::processSampleEvent(const pe::sample_event &event, Profile::
     if (objIt == memoryObjects_.end())
       continue;
 
-    objIt->second->d->appendBranch(callFrom, callTo);
+    objIt->second->appendBranch(callFrom, callTo);
 
     callTo = callFrom;
   }
@@ -356,11 +318,11 @@ void ProfilePrivate::resolveAndFixup(Profile::DetailLevel details)
 {
   for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
   {
-      AddressResolver r(details, objIt->second->d->fileName_.c_str(), objIt->first.end - objIt->first.start);
-      objIt->second->d->resolveEntries(r, objIt->first.start, details == Profile::Sources? &sourceFiles_ : 0);
+    AddressResolver r(details, objIt->second->fileName_.c_str(), objIt->first.end - objIt->first.start);
+    objIt->second->resolveEntries(r, objIt->first.start, details == Profile::Sources ? &sourceFiles_ : 0);
   }
   for (MemoryObjectStorage::iterator objIt = memoryObjects_.begin(); objIt != memoryObjects_.end(); ++objIt)
-    objIt->second->d->fixupBranches(memoryObjects_);
+    objIt->second->fixupBranches(memoryObjects_);
 }
 
 // Profile methods
