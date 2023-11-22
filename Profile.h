@@ -29,21 +29,21 @@ struct Range
   uint64_t end;
 };
 
-class SymbolDataPrivate;
 class SymbolData
 {
 public:
-  const std::string& name() const;
-  const std::string& sourceFile() const;
-  size_t sourceLine() const;
+  const std::string& name() const { return name_; }
+  const std::string& sourceFile() const { return *sourceFile_; }
+  size_t sourceLine() const { return sourceLine_; }
+
 private:
   friend class MemoryObjectDataPrivate;
-  SymbolData(const SymbolData&);
-  SymbolData& operator=(const SymbolData&);
 
   SymbolData();
-  ~SymbolData();
-  SymbolDataPrivate* d;
+
+  std::string name_;
+  const std::string* sourceFile_;
+  size_t sourceLine_;
 };
 
 typedef std::map<Range, SymbolData*> SymbolStorage;

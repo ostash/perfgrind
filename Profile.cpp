@@ -61,33 +61,10 @@ std::istream& operator>>(std::istream& is, perf_event& event)
 
 typedef std::tr1::unordered_set<std::string> StringTable;
 
-// SymbolDataPrivate methods
-class SymbolDataPrivate
-{
-  friend class SymbolData;
-  friend class MemoryObjectDataPrivate;
-  SymbolDataPrivate()
-    : sourceFile_(&unknownFile)
-    , sourceLine_(0)
-  {}
-  std::string name_;
-  const std::string* sourceFile_;
-  size_t sourceLine_;
-};
-
-// SymbolData methods
-
-const std::string& SymbolData::name() const { return d->name_; }
-
-const std::string& SymbolData::sourceFile() const { return *d->sourceFile_; }
-
-size_t SymbolData::sourceLine() const { return d->sourceLine_; }
-
 SymbolData::SymbolData()
-  : d(new SymbolDataPrivate)
+: sourceFile_(&unknownFile)
+, sourceLine_(0)
 {}
-
-SymbolData::~SymbolData() { delete d; }
 
 // EntryDataPrivate methods
 
@@ -191,15 +168,15 @@ void MemoryObjectDataPrivate::resolveEntries(const AddressResolver &resolver, Ad
     Range symbolRange;
     SymbolData* symbolData = new SymbolData();
 
-    if (resolver.resolve(entryIt->first, loadBase, symbolRange, symbolData->d->name_))
+    if (resolver.resolve(entryIt->first, loadBase, symbolRange, symbolData->name_))
     {
       if (sourceFiles)
       {
         const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(symbolRange.start, loadBase);
         if (pos.first)
         {
-          symbolData->d->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
-          symbolData->d->sourceLine_ = pos.second;
+          symbolData->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
+          symbolData->sourceLine_ = pos.second;
         }
       }
       symbols_.insert(Symbol(symbolRange, symbolData));
