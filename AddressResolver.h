@@ -11,7 +11,7 @@ class AddressResolverPrivate;
 class AddressResolver
 {
 public:
-  AddressResolver(Profile::DetailLevel details, const char* fileName, uint64_t objectSize);
+  AddressResolver(ProfileDetails details, const char* fileName, uint64_t objectSize);
   ~AddressResolver();
 
   Address baseAddress() const;

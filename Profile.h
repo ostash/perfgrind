@@ -138,20 +138,32 @@ namespace pe
 struct mmap_event;
 struct sample_event;
 } // namespace pe
+
+enum class ProfileMode
+{
+  Flat,
+  CallGraph
+};
+
+enum class ProfileDetails
+{
+  Objects,
+  Symbols,
+  Sources
+};
+
 class Profile
 {
 public:
-  enum Mode { Flat, CallGraph };
-  enum DetailLevel { Objects, Symbols, Sources };
   Profile() = default;
 
-  void load(std::istream& is, Mode mode = CallGraph);
+  void load(std::istream& is, ProfileMode mode);
   size_t mmapEventCount() const { return mmapEventCount_; }
   size_t goodSamplesCount() const { return goodSamplesCount_; }
   size_t nonUserSamples() const { return nonUserSamples_; }
   size_t unmappedSamples() const { return unmappedSamples_; }
 
-  void resolveAndFixup(DetailLevel details);
+  void resolveAndFixup(ProfileDetails details);
 
   const MemoryObjectStorage& memoryObjects() const { return memoryObjects_; }
 
@@ -160,7 +172,7 @@ private:
   Profile& operator=(const Profile&);
 
   void processMmapEvent(const pe::mmap_event& event);
-  void processSampleEvent(const pe::sample_event& event, Profile::Mode mode);
+  void processSampleEvent(const pe::sample_event& event, ProfileMode mode);
 
   void cleanupMemoryObjects();
 

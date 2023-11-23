@@ -14,11 +14,11 @@ int main(int argc, char** argv)
     exit(EXIT_SUCCESS);
   }
 
-  Profile::Mode mode;
+  ProfileMode mode;
   if (strcmp(argv[1], "flat") == 0)
-    mode = Profile::Flat;
+    mode = ProfileMode::Flat;
   else if (strcmp(argv[1], "callgraph") == 0)
-    mode = Profile::CallGraph;
+    mode = ProfileMode::CallGraph;
   else
   {
     std::cerr << "Invalid mode '" << argv[1] <<"'\n";

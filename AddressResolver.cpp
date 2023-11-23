@@ -179,7 +179,7 @@ void ElfHolder::loadInfo()
 
 struct ARSymbolData
 {
-  enum { MiscPLT = 255 };
+  static constexpr unsigned char MiscPLT = 255;
   explicit ARSymbolData(const GElf_Sym& elfSymbol)
     : size(elfSymbol.st_size)
     , misc(GELF_ST_BIND(elfSymbol.st_info))
@@ -213,7 +213,7 @@ public:
   const char* getDebugLink(Elf_Scn* section);
   void setOriginalBaseAddress(Elf* elf, Elf_Scn* section);
 
-  void constructFakeSymbols(Profile::DetailLevel details, uint64_t objectSize, const char* baseName);
+  void constructFakeSymbols(ProfileDetails details, uint64_t objectSize, const char* baseName);
 
   uint64_t baseAddress;
   uint64_t origBaseAddress;
@@ -233,15 +233,15 @@ static Dwfl_Callbacks callbacks = {
   0
 };
 
-AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileName, uint64_t objectSize)
-  : d(new AddressResolverPrivate)
+AddressResolver::AddressResolver(const ProfileDetails details, const char* fileName, uint64_t objectSize)
+: d(new AddressResolverPrivate)
 
 {
   elf_version(EV_CURRENT);
   ElfHolder elfh(fileName);
   d->origBaseAddress = d->baseAddress = elfh.getBaseAddress();
 
-  if (details != Profile::Objects && elfh.getSection(PLT) && elfh.getSection(DynSym))
+  if (details != ProfileDetails::Objects && elfh.getSection(PLT) && elfh.getSection(DynSym))
   {
     if (elfh.getSection(RelPLT))
       d->loadPLTSymbols(elfh.get(), elfh.getSection(PLT), elfh.getSection(RelPLT), elfh.getSection(DynSym));
@@ -250,7 +250,7 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
   }
 
   // Don't load symbols if not requested
-  bool symTabLoaded = (details == Profile::Objects);
+  bool symTabLoaded = (details == ProfileDetails::Objects);
   // Try to load .symtab from main file
   if (!symTabLoaded && elfh.getSection(SymTab))
   {
@@ -261,11 +261,11 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
     // Try to load .dynsym from main file
     d->loadSymbolsFromSection(elfh.get(), elfh.getSection(DynSym));
 
-  if (details != Profile::Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
+  if (details != ProfileDetails::Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
     d->setOriginalBaseAddress(elfh.get(), elfh.getSection(PrelinkUndo));
 
   std::string debugModuleName = fileName;
-  if (details != Profile::Objects && elfh.getSection(DebugLink))
+  if (details != ProfileDetails::Objects && elfh.getSection(DebugLink))
   {
     // Get name
     debugModuleName = "/usr/lib/debug";
@@ -286,7 +286,7 @@ AddressResolver::AddressResolver(Profile::DetailLevel details, const char *fileN
 
   d->constructFakeSymbols(details, objectSize, basename(fileName));
 
-  if (details == Profile::Sources)
+  if (details == ProfileDetails::Sources)
   {
     // Setup dwfl for sources positions fetching
     d->dwfl = dwfl_begin(&callbacks);
@@ -519,7 +519,7 @@ void AddressResolverPrivate::setOriginalBaseAddress(Elf *elf, Elf_Scn* section)
       }
 }
 
-void AddressResolverPrivate::constructFakeSymbols(Profile::DetailLevel details, uint64_t objectSize,
+void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, uint64_t objectSize,
                                                   const char* baseName)
 {
   // Create fake symbols to cover gaps
@@ -558,7 +558,7 @@ void AddressResolverPrivate::constructFakeSymbols(Profile::DetailLevel details, 
   if (baseAddress + objectSize - prevEnd >= 4)
   {
     ARSymbolData newSymbolData(baseAddress + objectSize - prevEnd);
-    if (details == Profile::Objects)
+    if (details == ProfileDetails::Objects)
       (newSymbolData.name = "whole").append(1, '@').append(baseName);
     newSymbols.insert(ARSymbol(Range(prevEnd, baseAddress + objectSize), newSymbolData));
   }

@@ -213,7 +213,7 @@ void Profile::processMmapEvent(const pe::mmap_event& event)
   mmapEventCount_++;
 }
 
-void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mode)
+void Profile::processSampleEvent(const pe::sample_event& event, const ProfileMode mode)
 {
   if (event.callchain[0] != PERF_CONTEXT_USER || event.callchainSize < 2)
   {
@@ -234,7 +234,7 @@ void Profile::processSampleEvent(const pe::sample_event& event, Profile::Mode mo
   memoryObjectIt->second.appendEntry(event.ip, 1);
   goodSamplesCount_++;
 
-  if (mode != Profile::CallGraph)
+  if (mode != ProfileMode::CallGraph)
     return;
 
   bool skipFrame = false;
@@ -282,19 +282,20 @@ void Profile::cleanupMemoryObjects()
   }
 }
 
-void Profile::resolveAndFixup(Profile::DetailLevel details)
+void Profile::resolveAndFixup(const ProfileDetails details)
 {
   for (auto& memoryObject: memoryObjects_)
   {
     const AddressResolver r(details, memoryObject.second.fileName_.c_str(), memoryObject.first.length());
-    memoryObject.second.resolveEntries(r, memoryObject.first.start(), details == Profile::Sources ? &sourceFiles_ : 0);
+    memoryObject.second.resolveEntries(r, memoryObject.first.start(),
+                                       details == ProfileDetails::Sources ? &sourceFiles_ : 0);
   }
 
   for (auto& memoryObject: memoryObjects_)
     memoryObject.second.fixupBranches(memoryObjects_);
 }
 
-void Profile::load(std::istream &is, Mode mode)
+void Profile::load(std::istream& is, const ProfileMode mode)
 {
   pe::perf_event event;
   while (!is.eof() && !is.fail())

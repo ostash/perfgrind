@@ -14,14 +14,12 @@
 struct Params
 {
   Params()
-    : mode(Profile::CallGraph)
-    , details(Profile::Sources)
-    , dumpInstructions(false)
-    , inputFile(0)
-    , outputFile("-")
+  : dumpInstructions(false)
+  , inputFile(0)
+  , outputFile("-")
   {}
-  Profile::Mode mode;
-  Profile::DetailLevel details;
+  ProfileMode mode = ProfileMode::CallGraph;
+  ProfileDetails details = ProfileDetails::Sources;
   bool dumpInstructions;
   const char* inputFile;
   const char* outputFile;
@@ -45,9 +43,9 @@ static void parseArguments(Params& params, int argc, char* argv[])
     {
     case 'm':
       if (strcmp(optarg, "flat") == 0)
-        params.mode = Profile::Flat;
+        params.mode = ProfileMode::Flat;
       else if (strcmp(optarg, "callgraph") == 0)
-        params.mode = Profile::CallGraph;
+        params.mode = ProfileMode::CallGraph;
       else
       {
         std::cerr << "Invalid mode '" << optarg <<"'\n";
@@ -56,11 +54,11 @@ static void parseArguments(Params& params, int argc, char* argv[])
       break;
     case 'd':
       if (strcmp(optarg, "object") == 0)
-        params.details = Profile::Objects;
+        params.details = ProfileDetails::Objects;
       else if (strcmp(optarg, "symbol") == 0)
-        params.details = Profile::Symbols;
+        params.details = ProfileDetails::Symbols;
       else if (strcmp(optarg, "source") == 0)
-        params.details = Profile::Sources;
+        params.details = ProfileDetails::Sources;
       else
       {
         std::cerr << "Invalid details level '" << optarg <<"'\n";
@@ -85,8 +83,8 @@ static void parseArguments(Params& params, int argc, char* argv[])
     printUsage();
 
   // It is not possible to use callgraphs with objects only
-  if (params.details == Profile::Objects)
-    params.mode = Profile::Flat;
+  if (params.details == ProfileDetails::Objects)
+    params.mode = ProfileMode::Flat;
 }
 
 static void dumpCallTo(std::ostream& os, const MemoryObjectData& callObjectData, const SymbolData& callSymbolData)
