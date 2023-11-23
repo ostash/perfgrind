@@ -78,6 +78,8 @@ typedef BranchStorage::value_type Branch;
 class EntryData
 {
 public:
+  explicit EntryData(Count count);
+
   Count count() const { return count_; }
   const BranchStorage& branches() const { return branches_; }
   const std::string& sourceFile() const { return *sourceFile_; }
@@ -86,16 +88,14 @@ public:
 private:
   friend class MemoryObjectData;
 
-  explicit EntryData(Count count);
-
   Count count_;
   BranchStorage branches_;
   const std::string* sourceFile_;
   size_t sourceLine_;
 };
 
-typedef std::map<Address, EntryData*> EntryStorage;
-typedef EntryStorage::value_type Entry;
+using EntryStorage = std::map<Address, EntryData>;
+using Entry = EntryStorage::value_type;
 
 typedef std::unordered_set<std::string> StringTable;
 
@@ -108,7 +108,7 @@ class MemoryObjectData
 {
 public:
   MemoryObjectData(const char* fileName, Size pageOffset);
-  ~MemoryObjectData();
+  ~MemoryObjectData() = default;
   MemoryObjectData(const MemoryObjectData&) = delete;
   MemoryObjectData& operator=(const MemoryObjectData&) = delete;
 

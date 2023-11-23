@@ -111,11 +111,11 @@ struct EntryGroupper
 {
   ByFileByLine& operator()(ByFileByLine& group, const Entry& entry) const
   {
-    const EntryData* entryData = entry.second;
-    EntrySum& groupData = group[&entryData->sourceFile()][entryData->sourceLine()];
-    groupData.count += entryData->count();
+    const EntryData& entryData = entry.second;
+    EntrySum& groupData = group[&entryData.sourceFile()][entryData.sourceLine()];
+    groupData.count += entryData.count();
 
-    for (const auto& branch: entryData->branches())
+    for (const auto& branch: entryData.branches())
       groupData.branches[branch.first.symbol] += branch.second;
 
     return group;
@@ -186,7 +186,7 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStor
   for (; entryFirst != entryLast; ++entryFirst)
   {
     Address entryAddress = entryFirst->first - addressAdjust;
-    const EntryData& entryData = *entryFirst->second;
+    const EntryData& entryData = entryFirst->second;
 
     if (fileName != &entryData.sourceFile())
     {
@@ -198,7 +198,7 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStor
       os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' '
          << entryData.count() << '\n';
 
-    for (const auto& branch: entryFirst->second->branches())
+    for (const auto& branch: entryFirst->second.branches())
     {
       const Symbol* callSymbol = branch.first.symbol;
       const MemoryObject& callObject = *objects.find(Range(callSymbol->first.start()));

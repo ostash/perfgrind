@@ -80,13 +80,12 @@ EntryData::EntryData(Count count)
 
 EntryData& MemoryObjectData::appendEntry(Address address, Count count)
 {
-  EntryData*& entryData = entries_[address];
-  if (!entryData)
-    entryData = new EntryData(count);
-  else
-    entryData->count_ += count;
+  auto& entryData =
+    entries_.emplace(std::piecewise_construct, std::forward_as_tuple(address), std::forward_as_tuple(0)).first->second;
 
-  return *entryData;
+  entryData.count_ += count;
+
+  return entryData;
 }
 
 void MemoryObjectData::appendBranch(Address from, Address to)
@@ -123,8 +122,7 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address l
     else
     {
       delete symbolData;
-      delete entryIt->second;
-      entries_.erase(entryIt++);
+      entryIt = entries_.erase(entryIt);
       continue;
     }
 
@@ -135,8 +133,8 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address l
         const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(entryIt->first, loadBase);
         if (pos.first)
         {
-          entryIt->second->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
-          entryIt->second->sourceLine_ = pos.second;
+          entryIt->second.sourceFile_ = &(*sourceFiles->insert(pos.first).first);
+          entryIt->second.sourceLine_ = pos.second;
         }
       }
       ++entryIt;
@@ -153,7 +151,7 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
   EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
   {
-    EntryData& entryData = *(entryIt->second);
+    EntryData& entryData = entryIt->second;
     if (entryData.branches().size() == 0)
     {
       ++entryIt;
@@ -183,10 +181,7 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
       ++entryIt;
     }
     else
-    {
-      delete entryIt->second;
-      entries_.erase(entryIt++);
-    }
+      entryIt = entries_.erase(entryIt);
   }
 }
 
@@ -195,12 +190,6 @@ MemoryObjectData::MemoryObjectData(const char* fileName, Size pageOffset)
 , pageOffset_(pageOffset)
 , fileName_(fileName)
 {}
-
-MemoryObjectData::~MemoryObjectData()
-{
-  for (const auto& entry: entries_)
-    delete entry.second;
-}
 
 void Profile::processMmapEvent(const pe::mmap_event& event)
 {
