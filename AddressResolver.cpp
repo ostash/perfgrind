@@ -21,7 +21,6 @@ enum Section {
   DynSym,
   DebugInfo,
   DebugLink,
-  PrelinkUndo,
   PLT,
   RelPLT,
   RelAPLT,
@@ -146,11 +145,6 @@ void ElfHolder::loadInfo()
         sections_[DebugLink] = scn;
         needToFind--;
       }
-      else if (strcmp(sectionName, ".gnu.prelink_undo") == 0)
-      {
-        sections_[PrelinkUndo] = scn;
-        needToFind--;
-      }
       else if (strcmp(sectionName, ".plt") == 0)
       {
         sections_[PLT] = scn;
@@ -200,18 +194,16 @@ class AddressResolverPrivate
 {
 public:
   AddressResolverPrivate()
-    : baseAddress(0)
-    , origBaseAddress(0)
-    , pltEndAddress(0)
-    , dwfl(0)
-    , dwMod(0)
-    , dwBias(0)
+  : baseAddress(0)
+  , pltEndAddress(0)
+  , dwfl(0)
+  , dwMod(0)
+  , dwBias(0)
   {}
 
   void loadPLTSymbols(Elf* elf, Elf_Scn* pltSection, Elf_Scn* relPltSection, Elf_Scn *dynsymSection);
   void loadSymbolsFromSection(Elf* elf, Elf_Scn* section);
   const char* getDebugLink(Elf_Scn* section);
-  void setOriginalBaseAddress(Elf* elf, Elf_Scn* section);
 
   void constructFakeSymbols(ProfileDetails details, uint64_t objectSize, const char* baseName);
 
@@ -239,7 +231,7 @@ AddressResolver::AddressResolver(const ProfileDetails details, const char* fileN
 {
   elf_version(EV_CURRENT);
   ElfHolder elfh(fileName);
-  d->origBaseAddress = d->baseAddress = elfh.getBaseAddress();
+  d->baseAddress = elfh.getBaseAddress();
 
   if (details != ProfileDetails::Objects && elfh.getSection(PLT) && elfh.getSection(DynSym))
   {
@@ -260,9 +252,6 @@ AddressResolver::AddressResolver(const ProfileDetails details, const char* fileN
   else if (!symTabLoaded && elfh.getSection(DynSym))
     // Try to load .dynsym from main file
     d->loadSymbolsFromSection(elfh.get(), elfh.getSection(DynSym));
-
-  if (details != ProfileDetails::Objects && elfh.getSection(PrelinkUndo) && elfh.getSection(DebugLink))
-    d->setOriginalBaseAddress(elfh.get(), elfh.getSection(PrelinkUndo));
 
   std::string debugModuleName = fileName;
   if (details != ProfileDetails::Objects && elfh.getSection(DebugLink))
@@ -356,7 +345,7 @@ std::pair<const char*, size_t> AddressResolver::getSourcePosition(Address value,
 {
   if (d->dwfl)
   {
-    Dwfl_Line* line = dwfl_getsrc(d->dwfl, value - loadBase + d->origBaseAddress + d->dwBias);
+    Dwfl_Line* line = dwfl_getsrc(d->dwfl, value - loadBase + d->dwBias);
     if (line)
     {
       int linep = 0;
@@ -434,7 +423,7 @@ void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
       continue;
 
     ARSymbolData symbolData(elfSymbol);
-    uint64_t symStart = elfSymbol.st_value - origBaseAddress + baseAddress;
+    uint64_t symStart = elfSymbol.st_value + baseAddress;
     uint64_t symEnd = symStart + (elfSymbol.st_size ?: 1);
 
     std::pair<ARSymbolStorage::iterator, bool> insResult =
@@ -460,64 +449,6 @@ void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
 //  Elf_Data* sectionData = elf_rawdata(section, 0);
 //  return (char*)sectionData->d_buf;
 //}
-
-void AddressResolverPrivate::setOriginalBaseAddress(Elf *elf, Elf_Scn* section)
-{
-  Elf_Data* sectionData = elf_rawdata(section, 0);
-  // Allmost direct copy-paste from elfutils/libdwfl/dwfl_module_getdwarf.c
-  union
-  {
-    Elf32_Ehdr e32;
-    Elf64_Ehdr e64;
-  } ehdr;
-
-  Elf_Data destination;
-  destination.d_buf = &ehdr;
-  destination.d_size = sizeof(ehdr);
-  destination.d_type = ELF_T_EHDR;
-  destination.d_version = EV_CURRENT;
-
-  Elf_Data source = *sectionData;
-  source.d_size = gelf_fsize(elf, ELF_T_EHDR, 1, EV_CURRENT);
-  source.d_type = ELF_T_EHDR;
-
-  unsigned int encode = elf_getident(elf, NULL)[EI_DATA];
-
-  gelf_xlatetom(elf, &destination, &source, encode);
-
-  unsigned phnum;
-  if (ehdr.e32.e_ident[EI_CLASS] == ELFCLASS32)
-    phnum = ehdr.e32.e_phnum;
-  else
-    phnum = ehdr.e64.e_phnum;
-
-  size_t phentsize = gelf_fsize(elf, ELF_T_PHDR, 1, EV_CURRENT);
-  source.d_buf = (char*)source.d_buf + source.d_size;
-  source.d_type = ELF_T_PHDR;
-  source.d_size = phnum * phentsize;
-
-  Elf64_Phdr phdr64[phnum];
-  Elf32_Phdr* phdr32 = (Elf32_Phdr*)phdr64;
-  destination.d_buf = &phdr64;
-  destination.d_size = sizeof(phdr64);
-  gelf_xlatetom(elf, &destination, &source, encode);
-  if (ehdr.e32.e_ident[EI_CLASS] == ELFCLASS32)
-  {
-    for (unsigned i = 0; i < phnum; ++i)
-      if (phdr32[i].p_type == PT_LOAD)
-      {
-        origBaseAddress = phdr32[i].p_vaddr;
-        break;
-      }
-  }
-  else
-    for (unsigned i = 0; i < phnum; ++i)
-      if (phdr64[i].p_type == PT_LOAD)
-      {
-        origBaseAddress = phdr64[i].p_vaddr;
-        break;
-      }
-}
 
 void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, uint64_t objectSize,
                                                   const char* baseName)
