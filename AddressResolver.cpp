@@ -39,6 +39,8 @@ public:
   Elf* get() { return elf_; }
   Elf_Scn* getSection(Section section) { return sections_[section]; }
   uint64_t getBaseAddress() const { return baseAddress_; }
+  bool usesAbsoluteAddresses() const { return usesAbsoluteAddresses_; }
+
 private:
   ElfHolder(const ElfHolder&);
   ElfHolder& operator=(const ElfHolder&);
@@ -49,6 +51,7 @@ private:
   Elf* elf_;
   Elf_Scn* sections_[SectionCount];
   int fd_;
+  bool usesAbsoluteAddresses_;
 };
 
 ElfHolder::ElfHolder(const char *fileName)
@@ -109,10 +112,11 @@ void ElfHolder::loadInfo()
     }
   }
 
-  // Find sections we are interested in
   GElf_Ehdr ehdr;
   gelf_getehdr(elf_, &ehdr);
+  usesAbsoluteAddresses_ = ehdr.e_type == ET_EXEC;
 
+  // Find sections we are interested in
   unsigned needToFind = SectionCount;
   size_t shCount;
   elf_getshdrnum(elf_, &shCount);
@@ -232,6 +236,7 @@ AddressResolver::AddressResolver(const ProfileDetails details, const char* fileN
   elf_version(EV_CURRENT);
   ElfHolder elfh(fileName);
   d->baseAddress = elfh.getBaseAddress();
+  usesAbsoluteAddresses_ = elfh.usesAbsoluteAddresses();
 
   if (details != ProfileDetails::Objects && elfh.getSection(PLT) && elfh.getSection(DynSym))
   {
@@ -292,65 +297,57 @@ AddressResolver::~AddressResolver()
   delete d;
 }
 
-Address AddressResolver::baseAddress() const
-{
-  return d->baseAddress;
-}
-
-static std::string constructSymbolName(uint64_t address)
+std::string AddressResolver::constructSymbolNameFromAddress(Address address)
 {
   std::stringstream ss;
   ss << "func_" << std::hex << address;
   return ss.str();
 }
 
-bool AddressResolver::resolve(Address value, Address loadBase, Range& symbolRange, std::string& symbolName) const
+std::pair<std::string, Range> AddressResolver::resolve(const Address address) const
 {
-  uint64_t adjust = loadBase - d->baseAddress;
-  ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(value - adjust));
+  std::pair<std::string, Range> result;
+  ARSymbolStorage::const_iterator arSymIt = d->symbols.find(Range(address));
   if (arSymIt == d->symbols.end())
   {
 #ifndef NDEBUG
-  std::cerr << "Can't resolve symbol for address " << std::hex << value - adjust
-            << ", load base: " << loadBase << std::dec << '\n';
+    std::cerr << "Can't resolve symbol for address " << std::hex << address << '\n';
 #endif
 
-    return false;
+    return result;
   }
 
-  symbolRange = arSymIt->first.adjusted(adjust);
-
+  result.second = arSymIt->first;
   const std::string& maybeSymbolName = arSymIt->second.name;
-  if (maybeSymbolName.empty())
-    symbolName = constructSymbolName(symbolRange.start());
-  else
+  if (!maybeSymbolName.empty())
   {
     char* demangledName = __cxxabiv1::__cxa_demangle(maybeSymbolName.c_str(), 0, 0, 0);
     if (demangledName)
     {
-      symbolName = demangledName;
+      result.first = demangledName;
       free(demangledName);
     }
     else
-      symbolName = maybeSymbolName;
+      result.first = maybeSymbolName;
 
     if (arSymIt->second.misc == ARSymbolData::MiscPLT)
-      symbolName.append("@plt");
+      result.first.append("@plt");
   }
 
-  return true;
+  return result;
 }
 
-std::pair<const char*, size_t> AddressResolver::getSourcePosition(Address value, Address loadBase) const
+std::pair<const char*, size_t> AddressResolver::getSourcePosition(Address address) const
 {
   if (d->dwfl)
   {
-    Dwfl_Line* line = dwfl_getsrc(d->dwfl, value - loadBase + d->dwBias);
+    Dwfl_Line* line = dwfl_getsrc(d->dwfl, address + d->dwBias);
     if (line)
     {
       int linep = 0;
-      const char* srcFile = dwfl_lineinfo(line, 0, &linep, 0, 0, 0);
-        return std::make_pair(srcFile, linep);
+      const char* srcFile =
+        dwfl_lineinfo(line, nullptr /*addr*/, &linep, nullptr /*colp*/, nullptr /*mtime*/, nullptr /*length*/);
+      return std::make_pair(srcFile, linep);
     }
   }
 
@@ -423,7 +420,7 @@ void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
       continue;
 
     ARSymbolData symbolData(elfSymbol);
-    uint64_t symStart = elfSymbol.st_value + baseAddress;
+    uint64_t symStart = elfSymbol.st_value;
     uint64_t symEnd = symStart + (elfSymbol.st_size ?: 1);
 
     std::pair<ARSymbolStorage::iterator, bool> insResult =

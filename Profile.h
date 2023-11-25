@@ -13,6 +13,7 @@ using Offset = std::int64_t;
 class Range
 {
 public:
+  Range() = default;
   Range(Address start, Address end)
   : start_(start)
   , end_(end)
@@ -25,13 +26,14 @@ public:
   Address start() const { return start_; }
   Address end() const { return end_; }
   Size length() const { return end_ - start_; }
+  bool isEmpty() const { return start_ == 0 && end_ == 0; }
   Range adjusted(Offset offset) const { return Range(start_ + offset, end_ + offset); }
 
   bool operator<(const Range& rhs) const { return end_ <= rhs.start_; }
 
 private:
-  Address start_;
-  Address end_;
+  Address start_ = 0;
+  Address end_ = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const Range& range);
@@ -112,10 +114,19 @@ public:
   MemoryObjectData(const MemoryObjectData&) = delete;
   MemoryObjectData& operator=(const MemoryObjectData&) = delete;
 
-  Address baseAddress() const { return baseAddress_; }
   const std::string& fileName() const { return fileName_; }
   const EntryStorage& entries() const { return entries_; }
   const SymbolStorage& symbols() const { return symbols_; }
+
+  Address mapToElf(const Address startAddress, const Address address) const
+  {
+    return usesAbsoluteAddresses_ ? address : address - startAddress + pageOffset_;
+  }
+
+  Address mapFromElf(const Address startAddress, const Address address) const
+  {
+    return usesAbsoluteAddresses_ ? address : address + startAddress - pageOffset_;
+  }
 
 private:
   friend class Profile;
@@ -123,14 +134,14 @@ private:
   EntryData& appendEntry(Address address, Count count);
   void appendBranch(Address from, Address to);
 
-  void resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles);
+  void resolveEntries(const AddressResolver& resolver, Address startAddress, StringTable* sourceFiles);
   void fixupBranches(const MemoryObjectStorage& objects);
 
-  Address baseAddress_;
   Size pageOffset_;
   EntryStorage entries_;
   SymbolStorage symbols_;
   std::string fileName_;
+  bool usesAbsoluteAddresses_ = false;
 };
 
 namespace pe

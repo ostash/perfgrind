@@ -175,15 +175,13 @@ static void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectS
   }
 }
 
-static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStorage& objects,
-                                 const std::string* fileName,
-                                 int64_t addressAdjust,
-                                 EntryStorage::const_iterator entryFirst,
-                                 EntryStorage::const_iterator entryLast)
+static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObject& currentObject,
+                                        const MemoryObjectStorage& allObjects, const std::string* fileName,
+                                        EntryStorage::const_iterator entryFirst, EntryStorage::const_iterator entryLast)
 {
   for (; entryFirst != entryLast; ++entryFirst)
   {
-    Address entryAddress = entryFirst->first - addressAdjust;
+    Address entryAddress = currentObject.second.mapToElf(currentObject.first.start(), entryFirst->first);
     const EntryData& entryData = entryFirst->second;
 
     if (fileName != &entryData.sourceFile())
@@ -199,8 +197,8 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObjectStor
     for (const auto& branch: entryFirst->second.branches())
     {
       const Symbol* callSymbol = branch.first.symbol;
-      const MemoryObject& callObject = *objects.find(Range(callSymbol->first.start()));
-      Address callAddress = callSymbol->first.start() - callObject.first.start() + callObject.second.baseAddress();
+      const MemoryObject& callObject = *allObjects.find(Range(callSymbol->first.start()));
+      Address callAddress = callObject.second.mapToElf(callObject.first.start(), callSymbol->first.start());
       dumpCallTo(os, callObject.second, *callSymbol->second);
       os << "calls=1 0x" << std::hex << callAddress << std::dec << ' ' << callSymbol->second->sourceLine() << '\n';
       os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' ' << branch.second
@@ -244,8 +242,7 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
       if (dumpInstructions)
       {
-        int64_t addresAdjust = object.first.start() - object.second.baseAddress();
-        dumpEntriesWithInstructions(os, profile.memoryObjects(), fileName, addresAdjust, entryFirst, entryLast);
+        dumpEntriesWithInstructions(os, object, profile.memoryObjects(), fileName, entryFirst, entryLast);
       }
       else
         dumpEntriesWithoutInstructions(os, profile.memoryObjects(), fileName, entryFirst, entryLast);

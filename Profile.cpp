@@ -93,31 +93,36 @@ void MemoryObjectData::appendBranch(Address from, Address to)
   appendEntry(from, 0).branches_[to]++;
 }
 
-void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address loadBase, StringTable* sourceFiles)
+void MemoryObjectData::resolveEntries(const AddressResolver& resolver, const Address startAddress,
+                                      StringTable* sourceFiles)
 {
-  // Set up correct base address
-  baseAddress_ = resolver.baseAddress();
-  // Take mmap page offset into consideration
-  loadBase -= pageOffset_;
+  // Save whether we use absolute addresses for this memory object
+  usesAbsoluteAddresses_ = resolver.usesAbsoluteAddresses();
+
   // Perform resolving
   EntryStorage::iterator entryIt = entries_.begin();
   while (entryIt != entries_.end())
   {
-    Range symbolRange(0);
+    Range symbolRange;
     SymbolData* symbolData = new SymbolData();
-
-    if (resolver.resolve(entryIt->first, loadBase, symbolRange, symbolData->name_))
+    const auto& resolveResult = resolver.resolve(mapToElf(startAddress, entryIt->first));
+    if (!resolveResult.second.isEmpty())
     {
+      symbolRange = Range(mapFromElf(startAddress, resolveResult.second.start()),
+                          mapFromElf(startAddress, resolveResult.second.end()));
+      symbolData->name_ = !resolveResult.first.empty() ?
+                            resolveResult.first :
+                            AddressResolver::constructSymbolNameFromAddress(symbolRange.start());
       if (sourceFiles)
       {
-        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(symbolRange.start(), loadBase);
+        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(resolveResult.second.start());
         if (pos.first)
         {
           symbolData->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
           symbolData->sourceLine_ = pos.second;
         }
       }
-      symbols_.insert(Symbol(symbolRange, symbolData));
+      symbols_.emplace(symbolRange, symbolData);
     }
     else
     {
@@ -130,7 +135,7 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, Address l
     {
       if (sourceFiles)
       {
-        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(entryIt->first, loadBase);
+        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(mapToElf(startAddress, entryIt->first));
         if (pos.first)
         {
           entryIt->second.sourceFile_ = &(*sourceFiles->insert(pos.first).first);
@@ -186,8 +191,7 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
 }
 
 MemoryObjectData::MemoryObjectData(const char* fileName, Size pageOffset)
-: baseAddress_(0)
-, pageOffset_(pageOffset)
+: pageOffset_(pageOffset)
 , fileName_(fileName)
 {}
 
