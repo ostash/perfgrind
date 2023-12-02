@@ -67,9 +67,15 @@ std::ostream& operator<<(std::ostream& os, const Range& range)
   return os;
 }
 
-SymbolData::SymbolData()
-: sourceFile_(&unknownFile)
-, sourceLine_(0)
+SymbolData::SymbolData(std::string name)
+: name_(std::move(name))
+, sourceFile_(&unknownFile)
+{}
+
+SymbolData::SymbolData(std::string name, const std::string* sourceFile, size_t sourceLine)
+: name_(std::move(name))
+, sourceFile_(sourceFile)
+, sourceLine_(sourceLine)
 {}
 
 EntryData::EntryData(Count count)
@@ -104,29 +110,28 @@ void MemoryObjectData::resolveEntries(const AddressResolver& resolver, const Add
   while (entryIt != entries_.end())
   {
     Range symbolRange;
-    SymbolData* symbolData = new SymbolData();
     const auto& resolveResult = resolver.resolve(mapToElf(startAddress, entryIt->first));
     if (!resolveResult.second.isEmpty())
     {
       symbolRange = Range(mapFromElf(startAddress, resolveResult.second.start()),
                           mapFromElf(startAddress, resolveResult.second.end()));
-      symbolData->name_ = !resolveResult.first.empty() ?
-                            resolveResult.first :
-                            AddressResolver::constructSymbolNameFromAddress(symbolRange.start());
-      if (sourceFiles)
+      auto symbolName = !resolveResult.first.empty() ?
+                          resolveResult.first :
+                          AddressResolver::constructSymbolNameFromAddress(symbolRange.start());
+
+      const auto pos = sourceFiles ? resolver.getSourcePosition(resolveResult.second.start()) :
+                                     std::pair<const char*, size_t>{nullptr, 0};
+      if (pos.first)
       {
-        const std::pair<const char*, size_t>& pos = resolver.getSourcePosition(resolveResult.second.start());
-        if (pos.first)
-        {
-          symbolData->sourceFile_ = &(*sourceFiles->insert(pos.first).first);
-          symbolData->sourceLine_ = pos.second;
-        }
+        const auto* sourceFile = &(*sourceFiles->insert(pos.first).first);
+        symbols_.emplace(std::piecewise_construct, std::forward_as_tuple(symbolRange),
+                         std::forward_as_tuple(std::move(symbolName), sourceFile, pos.second));
       }
-      symbols_.emplace(symbolRange, symbolData);
+      else
+        symbols_.emplace(symbolRange, std::move(symbolName));
     }
     else
     {
-      delete symbolData;
       entryIt = entries_.erase(entryIt);
       continue;
     }
@@ -164,14 +169,14 @@ void MemoryObjectData::fixupBranches(const MemoryObjectStorage& objects)
     }
 
     // Must exist, we drop unresolved entries earlier
-    SymbolStorage::const_iterator selfSymIt = symbols_.find(Range(entryIt->first));
+    const auto selfSymIt = symbols().find(Range(entryIt->first));
 
     EntryData fixedEntry(entryData.count());
     for (const auto& branch: entryData.branches())
     {
       const Address& branchAddress = branch.first.address;
       const MemoryObjectData& callObjectData = objects.at(Range(branchAddress));
-      SymbolStorage::const_iterator callSymbolIt = callObjectData.symbols_.find(Range(branchAddress));
+      const auto callSymbolIt = callObjectData.symbols().find(Range(branchAddress));
       if (callSymbolIt != callObjectData.symbols().end())
       {
         if (&callObjectData != this || callSymbolIt != selfSymIt)

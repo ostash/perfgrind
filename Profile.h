@@ -41,22 +41,21 @@ std::ostream& operator<<(std::ostream& os, const Range& range);
 class SymbolData
 {
 public:
+  SymbolData(std::string name);
+  SymbolData(std::string name, const std::string* sourceFile, size_t sourceLine);
+
   const std::string& name() const { return name_; }
   const std::string& sourceFile() const { return *sourceFile_; }
   size_t sourceLine() const { return sourceLine_; }
 
 private:
-  friend class MemoryObjectData;
-
-  SymbolData();
-
   std::string name_;
   const std::string* sourceFile_;
-  size_t sourceLine_;
+  size_t sourceLine_ = 0;
 };
 
-typedef std::map<Range, SymbolData*> SymbolStorage;
-typedef SymbolStorage::value_type Symbol;
+using SymbolStorage = std::map<Range, SymbolData>;
+using Symbol = SymbolStorage::value_type;
 
 union BranchTo
 {

@@ -160,8 +160,8 @@ static void dumpEntriesWithoutInstructions(std::ostream& os, const MemoryObjectS
       {
         const Symbol* callSymbol = branch.first;
         const MemoryObjectData& callObjectData = objects.at(Range(callSymbol->first.start()));
-        dumpCallTo(os, callObjectData, *callSymbol->second);
-        os << "calls=1 " << callSymbol->second->sourceLine() << '\n';
+        dumpCallTo(os, callObjectData, callSymbol->second);
+        os << "calls=1 " << callSymbol->second.sourceLine() << '\n';
         os << line << ' ' << branch.second << '\n';
       }
     }
@@ -199,8 +199,8 @@ static void dumpEntriesWithInstructions(std::ostream& os, const MemoryObject& cu
       const Symbol* callSymbol = branch.first.symbol;
       const MemoryObject& callObject = *allObjects.find(Range(callSymbol->first.start()));
       Address callAddress = callObject.second.mapToElf(callObject.first.start(), callSymbol->first.start());
-      dumpCallTo(os, callObject.second, *callSymbol->second);
-      os << "calls=1 0x" << std::hex << callAddress << std::dec << ' ' << callSymbol->second->sourceLine() << '\n';
+      dumpCallTo(os, callObject.second, callSymbol->second);
+      os << "calls=1 0x" << std::hex << callAddress << std::dec << ' ' << callSymbol->second.sourceLine() << '\n';
       os << "0x" << std::hex << entryAddress << std::dec << ' ' << entryData.sourceLine() << ' ' << branch.second
          << '\n';
     }
@@ -228,7 +228,7 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
     for (const auto& symbol: symbols)
     {
       const Range& symbolRange = symbol.first;
-      const SymbolData& symbolData = *symbol.second;
+      const SymbolData& symbolData = symbol.second;
 
       if (!fileName || fileName != &symbolData.sourceFile())
       {
