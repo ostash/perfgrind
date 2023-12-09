@@ -10,6 +10,8 @@ using Count = std::uint64_t;
 using Size = std::uint64_t;
 using Offset = std::int64_t;
 
+#include <cassert>
+
 class Range
 {
 public:
@@ -17,7 +19,9 @@ public:
   Range(Address start, Address end)
   : start_(start)
   , end_(end)
-  {}
+  {
+    assert(start < end);
+  }
 
   explicit Range(Address value)
   : Range(value, value + 1)

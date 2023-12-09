@@ -295,7 +295,7 @@ void Profile::resolveAndFixup(const ProfileDetails details)
 {
   for (auto& memoryObject: memoryObjects_)
   {
-    const AddressResolver r(details, memoryObject.second.fileName_.c_str(), memoryObject.first.length());
+    const AddressResolver r(details, memoryObject.second.fileName_.c_str());
     memoryObject.second.resolveEntries(r, memoryObject.first.start(),
                                        details == ProfileDetails::Sources ? &sourceFiles_ : 0);
   }

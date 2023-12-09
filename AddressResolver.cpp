@@ -39,6 +39,7 @@ public:
   Elf* get() { return elf_; }
   Elf_Scn* getSection(Section section) { return sections_[section]; }
   uint64_t getBaseAddress() const { return baseAddress_; }
+  Address getEndAddress() const { return endAddress_; }
   bool usesAbsoluteAddresses() const { return usesAbsoluteAddresses_; }
 
 private:
@@ -48,6 +49,7 @@ private:
   void loadInfo();
 
   uint64_t baseAddress_;
+  Address endAddress_ = 0;
   Elf* elf_;
   Elf_Scn* sections_[SectionCount];
   int fd_;
@@ -107,8 +109,9 @@ void ElfHolder::loadInfo()
     gelf_getphdr(elf_, i, &phdr);
     if (phdr.p_type == PT_LOAD)
     {
-      baseAddress_ = phdr.p_vaddr;
-      break;
+      baseAddress_ = std::min(phdr.p_vaddr, baseAddress_);
+      if (phdr.p_flags & PF_X)
+        endAddress_ = std::max(endAddress_, phdr.p_vaddr + phdr.p_memsz);
     }
   }
 
@@ -209,10 +212,9 @@ public:
   void loadSymbolsFromSection(Elf* elf, Elf_Scn* section);
   const char* getDebugLink(Elf_Scn* section);
 
-  void constructFakeSymbols(ProfileDetails details, uint64_t objectSize, const char* baseName);
+  void constructFakeSymbols(ProfileDetails details, Address endAddress, const char* baseName);
 
   uint64_t baseAddress;
-  uint64_t origBaseAddress;
   uint64_t pltEndAddress;
 
   Dwfl* dwfl;
@@ -229,7 +231,7 @@ static Dwfl_Callbacks callbacks = {
   0
 };
 
-AddressResolver::AddressResolver(const ProfileDetails details, const char* fileName, uint64_t objectSize)
+AddressResolver::AddressResolver(const ProfileDetails details, const char* fileName)
 : d(new AddressResolverPrivate)
 
 {
@@ -276,9 +278,11 @@ AddressResolver::AddressResolver(const ProfileDetails details, const char* fileN
     }
   }
 
+  const Address endAddress = elfh.getEndAddress();
+
   elfh.close();
 
-  d->constructFakeSymbols(details, objectSize, basename(fileName));
+  d->constructFakeSymbols(details, endAddress, basename(fileName));
 
   if (details == ProfileDetails::Sources)
   {
@@ -447,7 +451,7 @@ void AddressResolverPrivate::loadSymbolsFromSection(Elf* elf, Elf_Scn *section)
 //  return (char*)sectionData->d_buf;
 //}
 
-void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, uint64_t objectSize,
+void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, Address endAddress,
                                                   const char* baseName)
 {
   // Create fake symbols to cover gaps
@@ -466,7 +470,7 @@ void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, 
       ++nextSymIt;
       uint64_t newEnd;
       if (nextSymIt == symbols.end())
-        newEnd = baseAddress + objectSize;
+        newEnd = endAddress;
       else
         newEnd = nextSymIt->first.start();
 
@@ -483,12 +487,12 @@ void AddressResolverPrivate::constructFakeSymbols(const ProfileDetails details, 
       prevEnd = symRange.end();
     }
   }
-  if (baseAddress + objectSize - prevEnd >= 4)
+  if (endAddress - prevEnd >= 4)
   {
-    ARSymbolData newSymbolData(baseAddress + objectSize - prevEnd);
+    ARSymbolData newSymbolData(endAddress - prevEnd);
     if (details == ProfileDetails::Objects)
       (newSymbolData.name = "whole").append(1, '@').append(baseName);
-    newSymbols.insert(ARSymbol(Range(prevEnd, baseAddress + objectSize), newSymbolData));
+    newSymbols.insert(ARSymbol(Range(prevEnd, endAddress), newSymbolData));
   }
 
   symbols.swap(newSymbols);
