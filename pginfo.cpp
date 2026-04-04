@@ -45,7 +45,7 @@ int main(int argc, char** argv)
             << "\nnon-user sample events: " << profile.nonUserSamples()
             << "\nunmapped sample events: " << profile.unmappedSamples() << "\ntotal sample events: "
             << profile.goodSamplesCount() + profile.nonUserSamples() + profile.unmappedSamples() << "\ntotal events: "
-            << profile.goodSamplesCount() + profile.goodSamplesCount() + profile.nonUserSamples() +
+            << profile.mmapEventCount() + profile.goodSamplesCount() + profile.nonUserSamples() +
                  profile.unmappedSamples()
             << '\n';
 
