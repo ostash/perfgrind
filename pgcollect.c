@@ -71,7 +71,7 @@ static void collectTasks(struct PGCollectState* state, pid_t pid)
   }
 
   int taskAlloc = 1024;
-  state->pids = malloc(taskAlloc * sizeof(pid));
+  state->pids = malloc(taskAlloc * sizeof(pid_t));
   state->taskCount = 0;
 
   struct dirent* task;
