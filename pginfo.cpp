@@ -28,7 +28,7 @@ int main(int argc, char** argv)
   std::fstream input(argv[2], std::ios_base::in);
   if (!input)
   {
-    std::cerr << "Error reading input file " << argv[1] << '\n';
+    std::cerr << "Error reading input file " << argv[2] << '\n';
     exit(EXIT_FAILURE);
   }
 
