@@ -168,7 +168,7 @@ void ElfHolder::loadInfo()
       break;
     case SHT_RELA:
       sectionName = elf_strptr(elf_, ehdr.e_shstrndx, shdr.sh_name);
-      if (strcmp(sectionName, "rela.plt"))
+      if (strcmp(sectionName, ".rela.plt") == 0)
       {
         sections_[RelAPLT] = scn;
         needToFind--;
