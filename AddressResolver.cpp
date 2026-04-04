@@ -74,7 +74,7 @@ ElfHolder::~ElfHolder()
 void ElfHolder::open(const char *fileName)
 {
   elf_end(elf_);
-  if (fd_)
+  if (fd_ != -1)
     ::close(fd_);
 
   baseAddress_ = 0;
