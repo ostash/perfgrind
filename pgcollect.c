@@ -42,6 +42,7 @@ struct PerfMmapArea
   struct perf_event_mmap_page* header;
   char* data;
   size_t mask;
+  size_t size;
 };
 
 volatile sig_atomic_t stopCollecting = 0;
@@ -349,10 +350,10 @@ static void mmapPerfEvent(struct PerfMmapArea* area, int perfEventFD, const stru
 {
   // TODO: read limit from /proc/sys/kernel/perf_event_mlock_kb
   // and don't assume that 512k is allways 2^n pages
-  long pageSize = sysconf(_SC_PAGESIZE);
-  size_t size = 512 * 1024 + pageSize;
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  area->size = 512 * 1024 + pageSize;
 
-  area->header = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, perfEventFD, 0);
+  area->header = mmap(0, area->size, PROT_READ | PROT_WRITE, MAP_SHARED, perfEventFD, 0);
   if (area->header == MAP_FAILED)
   {
     perror("Can't mmap perf events");
@@ -363,7 +364,7 @@ static void mmapPerfEvent(struct PerfMmapArea* area, int perfEventFD, const stru
 
   area->data = ((char*)(area->header)) + pageSize;
   area->prev = 0;
-  area->mask = size - pageSize -1;
+  area->mask = area->size - pageSize - 1;
 }
 
 static void fillPollData(struct pollfd* pollData, int perfEventFD)
@@ -439,9 +440,14 @@ int main(int argc, char** argv)
   long cpuCount = sysconf(_SC_NPROCESSORS_CONF);
   size_t eventFdCount = state.taskCount * cpuCount;
 
-  int perfEventFD[eventFdCount];
-  struct PerfMmapArea perfEventArea[eventFdCount];
-  struct pollfd pollData[eventFdCount];
+  int* perfEventFD = malloc(eventFdCount * sizeof(int));
+  struct PerfMmapArea* perfEventArea = malloc(eventFdCount * sizeof(struct PerfMmapArea));
+  struct pollfd* pollData = malloc(eventFdCount * sizeof(struct pollfd));
+  if (!perfEventFD || !perfEventArea || !pollData)
+  {
+    fputs("Out of memory\n", stderr);
+    exit(EXIT_FAILURE);
+  }
 
   for (int cpu = 0; cpu < cpuCount; cpu++)
   {
@@ -485,4 +491,13 @@ int main(int argc, char** argv)
   fprintf(stdout, "Waked up %u times\nSythetic mmap events: %u\nReal mmap events: %u\nSample events: %u\n",
           state.wakeupCount, state.synthMmapCount, state.mmapCount, state.sampleCount);
   fprintf(stdout, "Total %u events written\n", state.synthMmapCount + state.mmapCount + state.sampleCount);
+
+  for (size_t eventFdIdx = 0; eventFdIdx < eventFdCount; eventFdIdx++)
+  {
+    munmap(perfEventArea[eventFdIdx].header, perfEventArea[eventFdIdx].size);
+    close(perfEventFD[eventFdIdx]);
+  }
+  free(perfEventFD);
+  free(perfEventArea);
+  free(pollData);
 }
