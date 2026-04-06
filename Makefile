@@ -53,12 +53,12 @@ check:	pgcollect pgconvert pginfo pginfo_dbg
 	@echo ""; echo "collecting some data of ls binary (likely without full symbols)..."
 	./pgcollect check_ls.pgdata $(PGCOLLECT_FLAGS) -- ls -l /usr/bin  1>/dev/null
 	@echo ""; echo "collecting data of checking that (guaranteed to have symbols for binary pginfo_dbg) ..."
-	./pgcollect check.pgdata    $(PGCOLLECT_FLAGS) -- ./pginfo_dbg callgraph check_ls.pgdata
+	./pgcollect check.pgdata    $(PGCOLLECT_FLAGS) -- ./pginfo_dbg -m callgraph check_ls.pgdata
 	@echo ""; echo "checking its infos ..."
-	./pginfo callgraph check.pgdata
+	./pginfo -m callgraph check.pgdata
 	@echo ""; echo "converting both collections to callgrind format ..."
 	./pgconvert check_ls.pgdata -d object       1> check_ls.grind  # old: stdout
-	./pgconvert check.pgdata    -d source -i       check.grind     # new: second option
+	./pgconvert check.pgdata    -d source -i    -o check.grind     # new: second option
 	@echo ""; echo "done, you may want to issue \"make open-checkfiles\" to open the result via kcachegrind"
 
 open-checkfiles:	check_ls.grind check.grind

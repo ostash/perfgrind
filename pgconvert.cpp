@@ -1,90 +1,105 @@
 #include "Profile.h"
-#include "AddressResolver.h"
 
-#include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <numeric>
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
 
-#include <getopt.h>
+#include <argp.h>
 
 struct Params
 {
-  Params()
-  : dumpInstructions(false)
-  , inputFile(0)
-  , outputFile("-")
-  {}
   ProfileMode mode = ProfileMode::CallGraph;
   ProfileDetails details = ProfileDetails::Sources;
-  bool dumpInstructions;
-  const char* inputFile;
-  const char* outputFile;
+  bool dumpInstructions = false;
+  const char* inputFile = nullptr;
+  const char* outputFile = nullptr;
+
+  bool modeSet = false;
+  bool detailsSet = false;
+  bool instrSet = false;
+  bool outputSet = false;
 };
 
-static void __attribute__((noreturn))
-printUsage()
+static const struct argp_option convertOptions[] = {
+  {"details", 'd', "LEVEL", 0, "Detail level: object, symbol or source (default: source)", 0},
+  {"instructions", 'i', nullptr, 0, "Include instruction addresses in output", 0},
+  {"mode", 'm', "MODE", 0, "Profile mode: flat or callgraph (default: callgraph)", 0},
+  {"output", 'o', "FILE", 0, "Write output to FILE instead of stdout", 0},
+  {nullptr, 0, nullptr, 0, nullptr, 0}};
+
+static const char convertArgsDoc[] = "INPUT.pgdata";
+static const char convertDoc[] = "Convert perfgrind profile data to callgrind format.";
+
+static error_t convertParseOpt(int key, char* arg, struct argp_state* state)
 {
-  std::cout << "Usage: " << program_invocation_short_name
-            << " [-m {flat|callgraph}] [-d {object|symbol|source}] [-i] filename.pgdata [filename.grind]"
-            << "\n";
-  exit(EXIT_SUCCESS);
+  Params* params = static_cast<Params*>(state->input);
+  switch (key)
+  {
+  case 'm':
+    if (params->modeSet)
+      argp_error(state, "option -m/--mode given more than once");
+    params->modeSet = true;
+    if (strcmp(arg, "flat") == 0)
+      params->mode = ProfileMode::Flat;
+    else if (strcmp(arg, "callgraph") == 0)
+      params->mode = ProfileMode::CallGraph;
+    else
+      argp_error(state, "invalid mode '%s'; expected 'flat' or 'callgraph'", arg);
+    break;
+  case 'd':
+    if (params->detailsSet)
+      argp_error(state, "option -d/--details given more than once");
+    params->detailsSet = true;
+    if (strcmp(arg, "object") == 0)
+      params->details = ProfileDetails::Objects;
+    else if (strcmp(arg, "symbol") == 0)
+      params->details = ProfileDetails::Symbols;
+    else if (strcmp(arg, "source") == 0)
+      params->details = ProfileDetails::Sources;
+    else
+      argp_error(state, "invalid detail level '%s'; expected 'object', 'symbol' or 'source'", arg);
+    break;
+  case 'i':
+    if (params->instrSet)
+      argp_error(state, "option -i/--instr given more than once");
+    params->instrSet = true;
+    params->dumpInstructions = true;
+    break;
+  case 'o':
+    if (params->outputSet)
+      argp_error(state, "option -o/--output given more than once");
+    params->outputSet = true;
+    params->outputFile = arg;
+    break;
+  case ARGP_KEY_ARG:
+    if (state->arg_num > 0)
+      argp_usage(state);
+    params->inputFile = arg;
+    break;
+  case ARGP_KEY_END:
+    if (!params->inputFile)
+      argp_usage(state);
+    break;
+  default:
+    return ARGP_ERR_UNKNOWN;
+  }
+  return 0;
 }
 
-static void parseArguments(Params& params, int argc, char* argv[])
+static const struct argp convertArgp = {convertOptions, convertParseOpt, convertArgsDoc, convertDoc,
+                                        nullptr,        nullptr,         nullptr};
+
+static Params parseArguments(int argc, char* argv[])
 {
-  int opt;
-  while ((opt = getopt(argc, argv, "m:d:i")) != -1)
-  {
-    switch (opt)
-    {
-    case 'm':
-      if (strcmp(optarg, "flat") == 0)
-        params.mode = ProfileMode::Flat;
-      else if (strcmp(optarg, "callgraph") == 0)
-        params.mode = ProfileMode::CallGraph;
-      else
-      {
-        std::cerr << "Invalid mode '" << optarg <<"'\n";
-        exit(EXIT_FAILURE);
-      }
-      break;
-    case 'd':
-      if (strcmp(optarg, "object") == 0)
-        params.details = ProfileDetails::Objects;
-      else if (strcmp(optarg, "symbol") == 0)
-        params.details = ProfileDetails::Symbols;
-      else if (strcmp(optarg, "source") == 0)
-        params.details = ProfileDetails::Sources;
-      else
-      {
-        std::cerr << "Invalid details level '" << optarg <<"'\n";
-        exit(EXIT_FAILURE);
-      }
-      break;
-    case 'i':
-      params.dumpInstructions = true;
-      break;
-    default:
-      printUsage();
-    }
-  }
-
-  if (argc - optind >= 1 && argc - optind <= 2 )
-  {
-    params.inputFile = argv[optind++];
-    if (optind < argc)
-      params.outputFile = argv[optind];
-  }
-  else
-    printUsage();
-
+  Params params;
+  argp_parse(&convertArgp, argc, argv, 0, nullptr, &params);
   // It is not possible to use callgraphs with objects only
   if (params.details == ProfileDetails::Objects)
     params.mode = ProfileMode::Flat;
+
+  return params;
 }
 
 static void dumpCallTo(std::ostream& os, const MemoryObjectData& callObjectData, const SymbolData& callSymbolData)
@@ -253,8 +268,7 @@ static void dump(std::ostream& os, const Profile& profile, bool dumpInstructions
 
 int main(int argc, char** argv)
 {
-  Params params;
-  parseArguments(params, argc, argv);
+  Params params = parseArguments(argc, argv);
 
   std::fstream input(params.inputFile, std::ios_base::in);
   if (!input)
@@ -269,7 +283,7 @@ int main(int argc, char** argv)
 
   profile.resolveAndFixup(params.details);
 
-  if (strcmp("-", params.outputFile))
+  if (params.outputFile)
   {
     std::ofstream out (params.outputFile);
     if (!out)

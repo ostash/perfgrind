@@ -1,8 +1,8 @@
+#include <argp.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <getopt.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -149,13 +149,90 @@ static void collectExistingMappings(struct PGCollectState* state)
   fclose(mapFile);
 }
 
-
-static void __attribute__((noreturn))
-printUsage()
+struct PGCollectParseInput
 {
-  fprintf(stdout, "Usage: %s outfile.pgdata [-F freq] [-s] {-p pid | [--] cmd}\n", program_invocation_short_name);
-  exit(EXIT_SUCCESS);
+  struct PGCollectState* state;
+  pid_t pid;
+  const char* outputFile;
+  char** cmdArgv;
+  bool freqSet;
+  bool pidSet;
+  bool swSet;
+};
+
+static const struct argp_option collectOptions[] = {
+  {"frequency", 'F', "FREQ", 0, "Sampling frequency in Hz (default: 1000)", 0},
+  {"pid", 'p', "PID", 0, "Profile existing process by PID instead of launching a command", 0},
+  {"software", 's', 0, 0, "Use software CPU clock events instead of hardware cycle events", 0},
+  {0, 0, 0, 0, 0, 0}};
+
+static const char collectArgsDoc[] = "OUTPUT.pgdata {-p pid | [--] CMD [ARGS...]}";
+static const char collectDoc[] = "Collect CPU profiling data into OUTPUT.pgdata.\v"
+                                 "To profile a running process supply -p PID. "
+                                 "To launch and profile a new process, provide its command after --. "
+                                 "OPTIONS and OUTPUT.pgdata may appear in any order before the command.";
+
+static error_t collectParseOpt(int key, char* arg, struct argp_state* state)
+{
+  struct PGCollectParseInput* input = state->input;
+  struct PGCollectState* s = input->state;
+  switch (key)
+  {
+  case 'F':
+    if (input->freqSet)
+      argp_error(state, "option -F/--frequency given more than once");
+    input->freqSet = true;
+    s->frequency = strtoul(arg, NULL, 10);
+    if (s->frequency == 0)
+      argp_error(state, "invalid frequency '%s'", arg);
+    break;
+  case 'p':
+  {
+    if (input->pidSet)
+      argp_error(state, "option -p/--pid given more than once");
+    input->pidSet = true;
+    errno = 0;
+    char* endptr;
+    input->pid = strtoll(arg, &endptr, 10);
+    if (errno != 0 || *endptr != '\0' || input->pid == 0)
+      argp_error(state, "invalid PID '%s'", arg);
+    s->gogoFD = -1;
+    break;
+  }
+  case 's':
+    if (input->swSet)
+      argp_error(state, "option -s/--software given more than once");
+    input->swSet = true;
+    s->useSwEvents = 1;
+    break;
+  case ARGP_KEY_ARG:
+    if (state->arg_num == 0)
+    {
+      input->outputFile = arg;
+    }
+    else if (state->arg_num == 1)
+    {
+      /* Save pointer to this arg in the original argv, then skip the rest:
+         argv is NULL-terminated so execvp will see the full command. */
+      input->cmdArgv = state->argv + state->next - 1;
+      state->next = state->argc;
+    }
+    break;
+  case ARGP_KEY_END:
+    if (!input->outputFile)
+      argp_error(state, "output file is required");
+    if (s->gogoFD == -1 && input->cmdArgv)
+      argp_error(state, "cannot use both -p and a command");
+    if (s->gogoFD != -1 && !input->cmdArgv)
+      argp_error(state, "either -p PID or a command must be given");
+    break;
+  default:
+    return ARGP_ERR_UNKNOWN;
+  }
+  return 0;
 }
+
+static const struct argp collectArgp = {collectOptions, collectParseOpt, collectArgsDoc, collectDoc, 0, 0, 0};
 
 static void prepareState(struct PGCollectState* state, int argc, char** argv)
 {
@@ -165,62 +242,26 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
   state->mmapCount = 0;
   state->synthMmapCount = 0;
   state->gogoFD = 0;
+  state->useSwEvents = 0;
 
-  if (argc < 3)
-    printUsage();
+  struct PGCollectParseInput parseInput = {
+    .state = state, .pid = 0, .outputFile = NULL, .cmdArgv = NULL, .freqSet = false, .pidSet = false, .swSet = false};
 
-  state->output = fopen(argv[1], "w");
+  argp_parse(&collectArgp, argc, argv, ARGP_IN_ORDER, NULL, &parseInput);
+
+  state->output = fopen(parseInput.outputFile, "w");
   if (!state->output)
   {
-    fprintf(stderr, "Can't create output file %s: %s\n", argv[1], strerror(errno));
+    fprintf(stderr, "Can't create output file %s: %s\n", parseInput.outputFile, strerror(errno));
     exit(EXIT_FAILURE);
   }
-
-  optind = 2;
-  int opt;
-  pid_t pid = 0;
-  while ((opt = getopt(argc, argv, "F:p:s")) != -1)
-  {
-    switch (opt)
-    {
-    case 'F':
-      state->frequency = strtoul(optarg, NULL, 10);
-      if (state->frequency == 0)
-      {
-        fprintf(stderr, "Invalid frequency '%s'\n", optarg);
-        exit(EXIT_FAILURE);
-      }
-      break;
-    case 'p': {
-      state->gogoFD = -1;
-      errno = 0;
-      char* endptr;
-      pid = strtoll(optarg, &endptr, 10);
-      if (errno != 0 || *endptr != 0 || pid == 0)
-      {
-        fprintf(stderr, "Bad PID '%s': %s\n", optarg, strerror(errno));
-        exit(EXIT_FAILURE);
-      }}
-      break;
-    case 's':
-      state->useSwEvents = 1;
-      break;
-    default:
-      printUsage();
-    }
-  }
-
-  // We still need a command to run for non-pid mode
-  if ((state->gogoFD != -1 && argc - optind < 1) ||
-      (state->gogoFD == -1 && argc != optind))
-    printUsage();
 
   fprintf(stdout, "Setting frequency to %u\n", state->frequency);
 
   if (state->gogoFD == -1)
   {
-    fprintf(stdout, "Going to profile process with PID %lld\n", (long long)pid);
-    collectTasks(state, pid);
+    fprintf(stdout, "Going to profile process with PID %lld\n", (long long)parseInput.pid);
+    collectTasks(state, parseInput.pid);
     collectExistingMappings(state);
   }
   else
@@ -248,7 +289,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
       // Child actions
 
       // No need to close unneeded ends of pipes as they will be closed on exec,
-      // thanks to O_CLOCEXEC
+      // thanks to O_CLOEXEC
       close(childReadiness[0]);
       close(profilingStart[1]);
       // Notify parent that we are ready
@@ -263,7 +304,7 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
 
       if (start)
       {
-        execvp(argv[optind], argv + optind);
+        execvp(parseInput.cmdArgv[0], parseInput.cmdArgv);
         perror("Can't exec new process");
       }
 
@@ -286,8 +327,8 @@ static void prepareState(struct PGCollectState* state, int argc, char** argv)
       close(childReadiness[0]);
 
       fprintf(stdout, "Going to profile process with PID %lld: ", (long long)state->pids[0]);
-      while (optind < argc)
-        fprintf(stdout, "%s ", argv[optind++]);
+      for (char** p = parseInput.cmdArgv; *p; p++)
+        fprintf(stdout, "%s ", *p);
       fputc('\n', stdout);
     }
   }
