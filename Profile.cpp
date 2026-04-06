@@ -53,7 +53,19 @@ struct perf_event
 std::istream& operator>>(std::istream& is, perf_event& event)
 {
   is.read((char*)&event, sizeof(perf_event_header));
-  is.read(((char*)&event) + sizeof(perf_event_header), event.header.size - sizeof(perf_event_header));
+
+  const size_t payloadSize = event.header.size - sizeof(perf_event_header);
+  const size_t maxPayload = sizeof(perf_event) - sizeof(perf_event_header);
+
+  is.read(((char*)&event) + sizeof(perf_event_header), std::min(payloadSize, maxPayload));
+
+  // If the kernel delivered a deeper callchain than PERF_MAX_STACK_DEPTH
+  // (controlled by kernel.perf_event_max_stack), the event is larger than our
+  // fixed-size struct.  Discard the excess bytes so the stream stays aligned
+  // for the next event.
+  if (payloadSize > maxPayload)
+    is.ignore(payloadSize - maxPayload);
+
   return is;
 }
 
